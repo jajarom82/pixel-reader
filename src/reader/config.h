@@ -10,6 +10,11 @@
 
 #define IDLE_SAVE_TIME_SEC 60
 
+// How often to re-check the battery percentage. Coarse on purpose - it
+// barely changes minute to minute, and re-reading it is one more thing
+// woken up on each check.
+#define BATTERY_POLL_INTERVAL_SEC 30
+
 #define FONT_DIR            "resources/fonts"
 #define DEFAULT_FONT_NAME   "resources/fonts/DejaVuSans.ttf"
 #define SYSTEM_FONT         "resources/fonts/DejaVuSansMono.ttf"

@@ -1,3 +1,4 @@
+#include "./battery_status.h"
 #include "./config.h"
 #include "./font_catalog.h"
 #include "./rotation.h"
@@ -20,6 +21,7 @@
 #include "util/math.h"
 #include "util/rotate_blit.h"
 #include "util/sdl_font_cache.h"
+#include "util/sdl_pointer.h"
 #include "util/task_queue.h"
 #include "util/timer.h"
 
@@ -365,8 +367,58 @@ int main(int argc, char **argv)
         SDL_Flip(video);
     };
 
+    // Battery indicator, drawn as a small overlay directly onto `screen`
+    // (whatever it currently holds) so it can refresh on its own poll
+    // cadence without requiring a full view re-render.
+    BatteryStatus battery_status;
+    auto draw_battery_overlay = [&]() {
+        auto percent = battery_status.get_percent();
+        if (!percent)
+        {
+            return;
+        }
+
+        TTF_Font *font = cached_load_font(SYSTEM_FONT, sys_styling.get_font_size());
+        const auto &theme = sys_styling.get_loaded_color_theme();
+
+        // Clear a zone sized for the widest case ("100%") and right-align
+        // the actual text within it, so a shrinking percentage (e.g.
+        // 100% -> 99%) can't leave stale digits from the wider old text.
+        int zone_w = 0, zone_h = 0;
+        TTF_SizeUTF8(font, "100%", &zone_w, &zone_h);
+
+        SDL_Rect zone_rect = {
+            static_cast<Sint16>(SCREEN_WIDTH - zone_w - 5),
+            5,
+            static_cast<Uint16>(zone_w),
+            static_cast<Uint16>(zone_h)
+        };
+        SDL_FillRect(
+            screen,
+            &zone_rect,
+            SDL_MapRGB(screen->format, theme.background.r, theme.background.g, theme.background.b)
+        );
+
+        char text[16];
+        snprintf(text, sizeof(text), "%d%%", *percent);
+
+        surface_unique_ptr surface { TTF_RenderUTF8_Shaded(font, text, theme.secondary_text, theme.background) };
+        if (!surface)
+        {
+            return;
+        }
+
+        SDL_Rect dest_rect = {
+            static_cast<Sint16>(zone_rect.x + zone_w - surface->w),
+            5,
+            0, 0
+        };
+        SDL_BlitSurface(surface.get(), NULL, screen, &dest_rect);
+    };
+
     // Initial render
     view_stack.render(screen, true);
+    draw_battery_overlay();
     present();
 
     while (!quit)
@@ -378,6 +430,8 @@ int main(int argc, char **argv)
             tick_timer.reset();
             view_stack.on_tick(elapsed_ms);
         }
+
+        bool battery_changed = battery_status.poll();
 
         // Only stay on a tight poll+sleep cadence while something is held or
         // animating; otherwise block until the next real event to let the
@@ -448,6 +502,7 @@ int main(int argc, char **argv)
         ran_user_code = held_key_tracker.for_longest_held(key_held_callback) || ran_user_code;
         ran_user_code = ran_user_code || need_fast_ticks;
 
+        bool view_rendered = false;
         if (ran_user_code)
         {
             bool force_render = view_stack.pop_completed_views();
@@ -457,10 +512,16 @@ int main(int argc, char **argv)
                 quit = true;
             }
 
-            if (view_stack.render(screen, force_render))
-            {
-                present();
-            }
+            view_rendered = view_stack.render(screen, force_render);
+        }
+
+        if (view_rendered || battery_changed)
+        {
+            // Battery-only updates don't need (and shouldn't force) a full
+            // view re-render: `screen` already holds the last frame's
+            // contents, so just redraw the indicator on top of it.
+            draw_battery_overlay();
+            present();
         }
 
         if (!quit && need_fast_ticks)

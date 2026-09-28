@@ -15,6 +15,7 @@ void ls(std::string path)
 void display_epub(std::string path);
 void display_xhtml(std::string path);
 void bulk_load_test(std::string path);
+void battery_probe();
 
 int main(int argc, char** argv)
 {
@@ -36,6 +37,10 @@ int main(int argc, char** argv)
         else if (mode == "bulk" && argc > 2)
         {
             bulk_load_test(argv[2]);
+        }
+        else if (mode == "battery")
+        {
+            battery_probe();
         }
         else
         {
