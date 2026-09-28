@@ -73,7 +73,7 @@ void open_toc_menu(ReaderView &reader_view, ReaderViewState &state)
     }
 
     // setup toc entries & callbacks
-    std::vector<std::string> menu_names;
+    std::vector<MenuEntry> menu_names;
     for (const auto &toc_item: toc)
     {
         std::string indent(toc_item.indent_level * 2, ' ');

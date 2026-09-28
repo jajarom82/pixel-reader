@@ -22,7 +22,7 @@ SelectionMenu::SelectionMenu(SystemStyling &styling)
 {
 }
 
-SelectionMenu::SelectionMenu(std::vector<std::string> entries, SystemStyling &styling)
+SelectionMenu::SelectionMenu(std::vector<MenuEntry> entries, SystemStyling &styling)
     : entries(entries),
       styling(styling),
       styling_sub_id(styling.subscribe_to_changes([this](SystemStyling::ChangeId) {
@@ -50,7 +50,7 @@ SelectionMenu::~SelectionMenu()
     styling.unsubscribe_from_changes(styling_sub_id);
 }
 
-void SelectionMenu::set_entries(std::vector<std::string> new_entries)
+void SelectionMenu::set_entries(std::vector<MenuEntry> new_entries)
 {
     entries = new_entries;
     set_cursor_pos(0);
@@ -81,7 +81,7 @@ void SelectionMenu::set_cursor_pos(const std::string &entry)
 {
     for (uint32_t i = 0; i < entries.size(); ++i)
     {
-        if (entries[i] == entry)
+        if (entries[i].text == entry)
         {
             set_cursor_pos(i);
             break;
@@ -169,8 +169,15 @@ bool SelectionMenu::render(SDL_Surface *dest_surface, bool force_render)
             SDL_FillRect(dest_surface, &rect, rect_highlight_color);
         }
 
-        // Draw text
+        // Draw text - directories are styled distinctly (secondary color +
+        // trailing slash, ls -F style) so they stand out from files.
         {
+            std::string display_text = entry.is_directory ? entry.text + "/" : entry.text;
+
+            SDL_Color text_color = is_highlighted ?
+                hl_text_color :
+                (entry.is_directory ? theme.secondary_text : fg_color);
+
             SDL_Rect rectMessage = {
                 x,
                 static_cast<Sint16>(y + line_padding / 2),
@@ -178,11 +185,28 @@ bool SelectionMenu::render(SDL_Surface *dest_surface, bool force_render)
             };
             auto message = surface_unique_ptr { TTF_RenderUTF8_Shaded(
                 loaded_font,
-                entry.c_str(),
-                is_highlighted ? hl_text_color : fg_color,
+                display_text.c_str(),
+                text_color,
                 is_highlighted ? hl_bg_color : bg_color
             ) };
             SDL_BlitSurface(message.get(), NULL, dest_surface, &rectMessage);
+        }
+
+        // Draw right-aligned label (e.g. read %), if any.
+        if (!entry.right_label.empty())
+        {
+            auto label_surface = surface_unique_ptr { TTF_RenderUTF8_Shaded(
+                loaded_font,
+                entry.right_label.c_str(),
+                is_highlighted ? hl_text_color : theme.secondary_text,
+                is_highlighted ? hl_bg_color : bg_color
+            ) };
+            SDL_Rect label_rect = {
+                static_cast<Sint16>(SCREEN_WIDTH - label_surface->w - line_padding),
+                static_cast<Sint16>(y + line_padding / 2),
+                0, 0
+            };
+            SDL_BlitSurface(label_surface.get(), NULL, dest_surface, &label_rect);
         }
 
         y += line_height;

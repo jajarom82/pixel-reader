@@ -12,11 +12,27 @@
 
 struct SystemStyling;
 
+// A single menu row. Directories get styled differently (Type::Directory)
+// so they stand out from files in the list; right_label (e.g. a read %)
+// is drawn right-aligned in a secondary color when non-empty.
+struct MenuEntry
+{
+    std::string text;
+    bool is_directory = false;
+    std::string right_label;
+
+    // Implicit: lets existing callers keep passing plain std::string/vector<std::string>.
+    MenuEntry(std::string text) : text(std::move(text)) {}
+
+    MenuEntry(std::string text, bool is_directory, std::string right_label = std::string())
+        : text(std::move(text)), is_directory(is_directory), right_label(std::move(right_label)) {}
+};
+
 class SelectionMenu: public View
 {
     bool needs_render = true;
 
-    std::vector<std::string> entries;
+    std::vector<MenuEntry> entries;
     uint32_t cursor_pos = 0;
     uint32_t scroll_pos = 0;
     bool close_on_select = false;
@@ -43,10 +59,10 @@ class SelectionMenu: public View
 public:
 
     SelectionMenu(SystemStyling &styling);
-    SelectionMenu(std::vector<std::string> entries, SystemStyling &styling);
+    SelectionMenu(std::vector<MenuEntry> entries, SystemStyling &styling);
     virtual ~SelectionMenu();
 
-    void set_entries(std::vector<std::string> new_entries);
+    void set_entries(std::vector<MenuEntry> new_entries);
     void set_on_selection(std::function<void(uint32_t)> callback);
     void set_on_focus(std::function<void(uint32_t)> callback);
     // Define fallback keypress handler

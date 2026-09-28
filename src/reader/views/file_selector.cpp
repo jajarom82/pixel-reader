@@ -42,10 +42,10 @@ void refresh_path_entries(FSState *s)
         }
     }
 
-    std::vector<std::string> menu_entries;
+    std::vector<MenuEntry> menu_entries;
     for (const auto &entry : s->path_entries)
     {
-        menu_entries.push_back(entry.name);
+        menu_entries.push_back(MenuEntry(entry.name, entry.is_dir));
     }
     s->menu.set_entries(menu_entries);
 }
