@@ -5,6 +5,7 @@
 #include "filetypes/epub/epub_cover.h"
 #include "reader/state_store.h"
 #include "reader/system_styling.h"
+#include "reader/text_wrap.h"
 #include "sys/keymap.h"
 #include "sys/screen.h"
 #include "util/sdl_image_cache.h"
@@ -21,6 +22,41 @@ namespace
 constexpr int TILE_COLUMNS = 3;
 constexpr int TILE_PADDING = 8;
 constexpr float COVER_ASPECT = 1.45f; // height/width, typical book cover
+constexpr int MAX_LABEL_LINES = 3;
+
+// Word-wrap (falling back to a hard character break for a single
+// unbreakably-long word) into up to `max_lines` lines that fit `avail_w`,
+// reusing the same pixel-width wrapper the reader itself wraps book text
+// with (reader/text_wrap.h) instead of just truncating to one line.
+std::vector<std::string> wrap_label(TTF_Font *font, const std::string &text, int avail_w, int max_lines)
+{
+    std::vector<std::string> lines;
+    if (avail_w <= 0 || text.empty())
+    {
+        return lines;
+    }
+
+    wrap_lines(
+        text.c_str(),
+        [&](const char *s, uint32_t len) {
+            int w = 0, h = 0;
+            char *mut_s = (char *)s;
+            char saved = mut_s[len];
+            mut_s[len] = 0;
+            TTF_SizeUTF8(font, mut_s, &w, &h);
+            mut_s[len] = saved;
+            return w <= avail_w;
+        },
+        [&](const char *s, uint32_t len) {
+            if (static_cast<int>(lines.size()) < max_lines)
+            {
+                lines.emplace_back(s, len);
+            }
+        }
+    );
+
+    return lines;
+}
 
 } // namespace
 
@@ -213,7 +249,8 @@ bool GalleryView::render(SDL_Surface *dest_surface, bool force_render)
 
     int tile_w = SCREEN_WIDTH / TILE_COLUMNS;
     int cover_h = static_cast<int>(tile_w * COVER_ASPECT);
-    int label_h = detect_line_height(font) + 4;
+    int label_line_height = detect_line_height(font) + 2;
+    int label_h = label_line_height * MAX_LABEL_LINES + 4;
     int tile_h = cover_h + label_h;
     int rows_visible = std::max(1, static_cast<int>(SCREEN_HEIGHT) / tile_h);
 
@@ -279,57 +316,65 @@ bool GalleryView::render(SDL_Surface *dest_surface, bool force_render)
                 draw_placeholder_tile(dest_surface, cover_rect, theme, entry.is_dir);
             }
 
-            // Label: filename (truncated to tile width), plus a progress
-            // badge for files that have been started.
+            // Label: filename, wrapped across up to MAX_LABEL_LINES lines
+            // using the full tile width instead of truncating to one line.
             {
                 std::string label = entry.is_dir ? entry.name + "/" : entry.name;
-
-                std::string right_label;
-                if (!entry.is_dir)
-                {
-                    auto book_id = state->state_store.get_book_id_for_path(state->browse.get_path() / entry.name);
-                    if (book_id)
-                    {
-                        auto progress = state->state_store.get_book_progress(*book_id);
-                        if (progress && *progress > 0)
-                        {
-                            right_label = std::to_string(*progress) + "%";
-                        }
-                    }
-                }
-
                 int avail_w = tile_w - TILE_PADDING * 2;
-                while (label.size() > 1)
-                {
-                    int w = 0, h = 0;
-                    TTF_SizeUTF8(font, label.c_str(), &w, &h);
-                    if (w <= avail_w)
-                    {
-                        break;
-                    }
-                    label.pop_back();
-                }
 
                 const SDL_Color &label_color = is_highlighted ? theme.highlight_text : (entry.is_dir ? theme.secondary_text : theme.main_text);
                 const SDL_Color &label_bg = is_highlighted ? theme.highlight_background : theme.background;
 
-                auto label_surface = surface_unique_ptr { TTF_RenderUTF8_Shaded(font, label.c_str(), label_color, label_bg) };
-                SDL_Rect label_rect = {
-                    static_cast<Sint16>(x + TILE_PADDING),
-                    static_cast<Sint16>(y + cover_h + 2),
-                    0, 0
-                };
-                SDL_BlitSurface(label_surface.get(), NULL, dest_surface, &label_rect);
-
-                if (!right_label.empty())
+                auto lines = wrap_label(font, label, avail_w, MAX_LABEL_LINES);
+                int line_y = y + cover_h + 2;
+                for (const auto &line_text : lines)
                 {
-                    auto progress_surface = surface_unique_ptr { TTF_RenderUTF8_Shaded(font, right_label.c_str(), theme.secondary_text, label_bg) };
-                    SDL_Rect progress_rect = {
-                        static_cast<Sint16>(x + tile_w - TILE_PADDING - progress_surface->w),
-                        static_cast<Sint16>(y + cover_h + 2),
-                        0, 0
-                    };
-                    SDL_BlitSurface(progress_surface.get(), NULL, dest_surface, &progress_rect);
+                    if (!line_text.empty())
+                    {
+                        auto line_surface = surface_unique_ptr { TTF_RenderUTF8_Shaded(font, line_text.c_str(), label_color, label_bg) };
+                        if (line_surface)
+                        {
+                            SDL_Rect line_rect = {
+                                static_cast<Sint16>(x + TILE_PADDING),
+                                static_cast<Sint16>(line_y),
+                                0, 0
+                            };
+                            SDL_BlitSurface(line_surface.get(), NULL, dest_surface, &line_rect);
+                        }
+                    }
+                    line_y += label_line_height;
+                }
+            }
+
+            // Progress badge: overlaid on the cover's corner (as a solid
+            // pill, not shaded text) rather than next to the filename,
+            // since it needs to stay legible over an actual cover image
+            // instead of the theme's plain background.
+            if (!entry.is_dir)
+            {
+                auto book_id = state->state_store.get_book_id_for_path(state->browse.get_path() / entry.name);
+                if (book_id)
+                {
+                    auto progress = state->state_store.get_book_progress(*book_id);
+                    if (progress && *progress > 0)
+                    {
+                        std::string badge_text = std::to_string(*progress) + "%";
+                        auto badge_surface = surface_unique_ptr { TTF_RenderUTF8_Shaded(
+                            font,
+                            badge_text.c_str(),
+                            theme.background,
+                            theme.highlight_background
+                        ) };
+                        if (badge_surface)
+                        {
+                            SDL_Rect badge_rect = {
+                                static_cast<Sint16>(cover_rect.x + cover_rect.w - badge_surface->w - 4),
+                                static_cast<Sint16>(cover_rect.y + cover_rect.h - badge_surface->h - 4),
+                                0, 0
+                            };
+                            SDL_BlitSurface(badge_surface.get(), NULL, dest_surface, &badge_rect);
+                        }
+                    }
                 }
             }
         }

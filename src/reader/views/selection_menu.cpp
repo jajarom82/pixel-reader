@@ -156,6 +156,11 @@ void SelectionMenu::set_cursor_pos(uint32_t new_cursor_pos)
     needs_render = true;
 }
 
+uint32_t SelectionMenu::get_cursor_pos() const
+{
+    return cursor_pos;
+}
+
 void SelectionMenu::close()
 {
     _is_done = true;
@@ -211,29 +216,12 @@ bool SelectionMenu::render(SDL_Surface *dest_surface, bool force_render)
             SDL_FillRect(dest_surface, &rect, rect_highlight_color);
         }
 
-        // Pre-render the right-aligned label (if any) first, so the title
-        // below knows how much width to leave for it and never draws over it.
-        surface_unique_ptr label_surface;
-        int reserved_w = 0;
-        if (!entry.right_label.empty())
-        {
-            label_surface = surface_unique_ptr { TTF_RenderUTF8_Shaded(
-                loaded_font,
-                entry.right_label.c_str(),
-                is_highlighted ? hl_text_color : theme.secondary_text,
-                is_highlighted ? hl_bg_color : bg_color
-            ) };
-            if (label_surface)
-            {
-                reserved_w = label_surface->w + line_padding;
-            }
-        }
-        int avail_w = std::max(0, SCREEN_WIDTH - x - line_padding - reserved_w);
+        int avail_w = std::max(0, SCREEN_WIDTH - x - line_padding);
 
         // Draw text - directories are styled distinctly (secondary color +
         // trailing slash, ls -F style); books with progress get an accent
-        // color so they're obviously "in progress" even when the title
-        // itself is too long to show the "% at the end" at a glance.
+        // color so they're obviously "in progress" at a glance.
+        SDL_Color accent_color = is_highlighted ? hl_text_color : theme.highlight_background;
         {
             std::string display_text = entry.is_directory ? entry.text + "/" : entry.text;
 
@@ -241,7 +229,7 @@ bool SelectionMenu::render(SDL_Surface *dest_surface, bool force_render)
                 hl_text_color :
                 (entry.is_directory ?
                     theme.secondary_text :
-                    (!entry.right_label.empty() ? theme.highlight_background : fg_color));
+                    (entry.progress_percent > 0 ? theme.highlight_background : fg_color));
 
             auto message = surface_unique_ptr { TTF_RenderUTF8_Shaded(
                 loaded_font,
@@ -279,23 +267,27 @@ bool SelectionMenu::render(SDL_Surface *dest_surface, bool force_render)
                 }
                 else
                 {
-                    // Not selected - just clip to leave room for the label,
-                    // rather than potentially drawing over it.
+                    // Not selected - just clip, same as before this row got
+                    // wide enough to need a marquee at all.
                     SDL_Rect src_rect = {0, 0, static_cast<Uint16>(avail_w), static_cast<Uint16>(message->h)};
                     SDL_BlitSurface(message.get(), &src_rect, dest_surface, &dest_rect);
                 }
             }
         }
 
-        // Draw right-aligned label (e.g. read %) on top, if any.
-        if (label_surface)
+        // Progress bar: a 1px line below the title, spanning the full
+        // screen width at 100%, instead of a text badge that competes with
+        // the title for space and disappears when the title is too long.
+        if (entry.progress_percent > 0)
         {
-            SDL_Rect label_rect = {
-                static_cast<Sint16>(SCREEN_WIDTH - label_surface->w - line_padding),
-                static_cast<Sint16>(y + line_padding / 2),
-                0, 0
+            int bar_w = static_cast<int>(SCREEN_WIDTH) * static_cast<int>(std::min<uint32_t>(entry.progress_percent, 100)) / 100;
+            SDL_Rect bar_rect = {
+                0,
+                static_cast<Sint16>(y + line_height - 1),
+                static_cast<Uint16>(bar_w),
+                1
             };
-            SDL_BlitSurface(label_surface.get(), NULL, dest_surface, &label_rect);
+            SDL_FillRect(dest_surface, &bar_rect, SDL_MapRGB(pixel_format, accent_color.r, accent_color.g, accent_color.b));
         }
 
         y += line_height;

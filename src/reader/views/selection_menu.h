@@ -14,19 +14,19 @@
 struct SystemStyling;
 
 // A single menu row. Directories get styled differently (Type::Directory)
-// so they stand out from files in the list; right_label (e.g. a read %)
-// is drawn right-aligned in a secondary color when non-empty.
+// so they stand out from files in the list; progress_percent (0 = not
+// started / not applicable) is drawn as a thin bar below the title.
 struct MenuEntry
 {
     std::string text;
     bool is_directory = false;
-    std::string right_label;
+    uint32_t progress_percent = 0;
 
     // Implicit: lets existing callers keep passing plain std::string/vector<std::string>.
     MenuEntry(std::string text) : text(std::move(text)) {}
 
-    MenuEntry(std::string text, bool is_directory, std::string right_label = std::string())
-        : text(std::move(text)), is_directory(is_directory), right_label(std::move(right_label)) {}
+    MenuEntry(std::string text, bool is_directory, uint32_t progress_percent = 0)
+        : text(std::move(text)), is_directory(is_directory), progress_percent(progress_percent) {}
 };
 
 class SelectionMenu: public View
@@ -48,9 +48,9 @@ class SelectionMenu: public View
 
     Throttled scroll_throttle;
 
-    // Marquee: when the highlighted row's title is too wide to fit (minus
-    // any right-aligned label), scroll it back and forth over time instead
-    // of silently clipping it, so the full title stays readable.
+    // Marquee: when the highlighted row's title is too wide to fit, scroll
+    // it back and forth over time instead of silently clipping it, so the
+    // full title stays readable.
     Timer marquee_timer;
     bool current_row_needs_marquee = false;
 
@@ -78,6 +78,7 @@ public:
 
     void set_cursor_pos(const std::string &entry);
     void set_cursor_pos(uint32_t pos);
+    uint32_t get_cursor_pos() const;
 
     void close();
 

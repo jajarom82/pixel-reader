@@ -210,6 +210,16 @@ void ReaderView::on_keyheld(SDLKey key, uint32_t hold_time_ms)
     state->token_view->on_keyheld(key, hold_time_ms);
 }
 
+void ReaderView::on_tick(uint32_t elapsed_ms)
+{
+    state->token_view->on_tick(elapsed_ms);
+}
+
+bool ReaderView::wants_continuous_render() const
+{
+    return state->token_view->wants_continuous_render();
+}
+
 void ReaderView::set_on_change_address(std::function<void(DocAddr)> callback)
 {
     state->on_change_address = callback;

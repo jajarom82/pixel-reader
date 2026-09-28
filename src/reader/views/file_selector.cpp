@@ -34,7 +34,7 @@ std::vector<MenuEntry> build_menu_entries(FSState *s)
     std::vector<MenuEntry> menu_entries;
     for (const auto &entry : s->browse.get_entries())
     {
-        std::string right_label;
+        uint32_t progress_percent = 0;
         if (!entry.is_dir)
         {
             // Cheap: only a couple of key/value lookups, no need to open
@@ -43,13 +43,13 @@ std::vector<MenuEntry> build_menu_entries(FSState *s)
             if (book_id)
             {
                 auto progress = s->state_store.get_book_progress(*book_id);
-                if (progress && *progress > 0)
+                if (progress)
                 {
-                    right_label = std::to_string(*progress) + "%";
+                    progress_percent = *progress;
                 }
             }
         }
-        menu_entries.push_back(MenuEntry(entry.name, entry.is_dir, right_label));
+        menu_entries.push_back(MenuEntry(entry.name, entry.is_dir, progress_percent));
     }
     return menu_entries;
 }
@@ -151,6 +151,23 @@ bool FileSelector::wants_continuous_render() const
 
 void FileSelector::on_focus()
 {
+    // Refresh progress %/labels: this view can regain focus after a book
+    // was read (e.g. backing out of it), and its progress may have
+    // changed since this listing was last built. Preserve the highlighted
+    // entry across the refresh (set_entries() would otherwise reset it).
+    {
+        const auto &entries = state->browse.get_entries();
+        uint32_t cursor = state->menu.get_cursor_pos();
+        std::string highlight_name = cursor < entries.size() ? entries[cursor].name : std::string();
+
+        refresh_menu(state.get());
+
+        if (!highlight_name.empty())
+        {
+            state->menu.set_cursor_pos(highlight_name);
+        }
+    }
+
     if (state->on_view_focus)
     {
         state->on_view_focus();

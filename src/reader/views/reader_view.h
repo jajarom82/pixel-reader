@@ -38,6 +38,8 @@ public:
 
     void on_keypress(SDLKey key) override;
     void on_keyheld(SDLKey key, uint32_t hold_time_ms) override;
+    void on_tick(uint32_t elapsed_ms) override;
+    bool wants_continuous_render() const override;
 
     void set_on_change_address(std::function<void(DocAddr)> callback);
 
