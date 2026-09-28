@@ -18,6 +18,7 @@ public:
         FONT_SIZE,
         COLOR_THEME,
         SHOULDER_KEYMAP,
+        ROTATION,
     };
 
 private:
@@ -29,7 +30,8 @@ public:
         const std::string &font_name,
         uint32_t font_size,
         const std::string &color_theme,
-        const std::string &shoulder_keymap
+        const std::string &shoulder_keymap,
+        const std::string &rotation
     );
     virtual ~SystemStyling();
 
@@ -52,6 +54,10 @@ public:
     // shoulder keymap
     const std::string &get_shoulder_keymap() const;
     void set_shoulder_keymap(const std::string &keymap);
+
+    // rotation
+    const std::string &get_rotation() const;
+    void set_rotation(const std::string &rotation);
 
     // Subscribe to any changes
     uint32_t subscribe_to_changes(std::function<void(ChangeId)> callback);

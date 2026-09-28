@@ -5,6 +5,7 @@
 #include "reader/config.h"
 #include "reader/draw_modal_border.h"
 #include "reader/font_catalog.h"
+#include "reader/rotation.h"
 #include "reader/settings_store.h"
 #include "reader/shoulder_keymap.h"
 #include "reader/system_styling.h"
@@ -49,6 +50,12 @@ SettingsView::SettingsView(
         [] { return std::string("Shoulder keymap:"); },
         [this] { return get_shoulder_keymap_display_name(sys_styling.get_shoulder_keymap()); },
         [this](int dir) { on_change_shoulder_keymap(dir); },
+        nullptr
+    });
+    rows.push_back({
+        [] { return std::string("Rotation:"); },
+        [this] { return get_rotation_display_name(sys_styling.get_rotation()); },
+        [this](int dir) { on_change_rotation(dir); },
         nullptr
     });
     rows.push_back({
@@ -260,6 +267,16 @@ void SettingsView::on_change_shoulder_keymap(int dir)
         (dir < 0) ?
             get_prev_shoulder_keymap(keymap) :
             get_next_shoulder_keymap(keymap)
+    );
+}
+
+void SettingsView::on_change_rotation(int dir)
+{
+    const auto &rotation = sys_styling.get_rotation();
+    sys_styling.set_rotation(
+        (dir < 0) ?
+            get_prev_rotation(rotation) :
+            get_next_rotation(rotation)
     );
 }
 

@@ -1,5 +1,6 @@
 #include "./config.h"
 #include "./font_catalog.h"
+#include "./rotation.h"
 #include "./settings_store.h"
 #include "./shoulder_keymap.h"
 #include "./state_store.h"
@@ -17,6 +18,7 @@
 #include "util/held_key_tracker.h"
 #include "util/key_value_file.h"
 #include "util/math.h"
+#include "util/rotate_blit.h"
 #include "util/sdl_font_cache.h"
 #include "util/task_queue.h"
 #include "util/timer.h"
@@ -174,32 +176,65 @@ int main(int argc, char **argv)
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
 
+    unsigned int physical_width = SCREEN_WIDTH;
+    unsigned int physical_height = SCREEN_HEIGHT;
+
     if (char* env_screen_width = SDL_getenv("SCREEN_WIDTH")) {
         int new_width = atoi(env_screen_width);
         if (100 < new_width && new_width < 4096)
-            SCREEN_WIDTH = static_cast<unsigned int>(new_width);
+            physical_width = static_cast<unsigned int>(new_width);
     }
 
     if (char* env_screen_height = SDL_getenv("SCREEN_HEIGHT")) {
         int new_height = atoi(env_screen_height);
         if (100 < new_height && new_height < 4096)
-            SCREEN_HEIGHT = static_cast<unsigned int>(new_height);
+            physical_height = static_cast<unsigned int>(new_height);
     }
-
-    std::cout << "Screen Size: " << SCREEN_WIDTH << "x" << SCREEN_HEIGHT << std::endl;
 
     // SDL Init
     SDL_Init(SDL_INIT_VIDEO);
     SDL_ShowCursor(SDL_DISABLE);
     TTF_Init();
 
+    auto config = load_config_with_defaults();
+    StateStore state_store(config[CONFIG_KEY_STORE_PATH]);
+
+    // Rotation must be known before creating the surfaces below, since a
+    // 90/270 rotation swaps the logical (view-facing) screen dimensions
+    // relative to the physical panel.
+    std::string rotation = get_valid_rotation(settings_get_rotation(state_store).value_or(DEFAULT_ROTATION));
+
+    auto is_rotation_swapped = [](const std::string &r) {
+        int degrees = get_rotation_degrees(r);
+        return degrees == 90 || degrees == 270;
+    };
+
+    SCREEN_WIDTH = is_rotation_swapped(rotation) ? physical_height : physical_width;
+    SCREEN_HEIGHT = is_rotation_swapped(rotation) ? physical_width : physical_height;
+
+    std::cout << "Physical screen size: " << physical_width << "x" << physical_height << std::endl;
+    std::cout << "Logical screen size: " << SCREEN_WIDTH << "x" << SCREEN_HEIGHT << std::endl;
+
     // Surfaces
-    SDL_Surface *video = SDL_SetVideoMode(SCREEN_WIDTH, SCREEN_HEIGHT, 32, SDL_HWSURFACE);
+    SDL_Surface *video = SDL_SetVideoMode(physical_width, physical_height, 32, SDL_HWSURFACE);
     SDL_Surface *screen = SDL_CreateRGBSurface(SDL_HWSURFACE, SCREEN_WIDTH, SCREEN_HEIGHT, 32, 0, 0, 0, 0);
     set_render_surface_format(screen->format);
 
-    auto config = load_config_with_defaults();
-    StateStore state_store(config[CONFIG_KEY_STORE_PATH]);
+    // Scratch buffer content is rotated into before reaching the physical
+    // panel. Only allocated while a non-zero rotation is active.
+    SDL_Surface *rotated_buffer = nullptr;
+    auto sync_rotated_buffer = [&]() {
+        if (rotated_buffer)
+        {
+            SDL_FreeSurface(rotated_buffer);
+            rotated_buffer = nullptr;
+        }
+        if (get_rotation_degrees(rotation) != 0)
+        {
+            rotated_buffer = SDL_CreateRGBSurface(SDL_SWSURFACE, physical_width, physical_height, 32, 0, 0, 0, 0);
+        }
+    };
+    sync_rotated_buffer();
 
     // Preload & check fonts
     auto init_font_name = get_valid_font_name(settings_get_font_name(state_store).value_or(DEFAULT_FONT_NAME));
@@ -218,14 +253,33 @@ int main(int argc, char **argv)
         init_font_name,
         init_font_size,
         get_valid_theme(settings_get_color_theme(state_store).value_or(DEFAULT_COLOR_THEME)),
-        get_valid_shoulder_keymap(settings_get_shoulder_keymap(state_store).value_or(DEFAULT_SHOULDER_KEYMAP))
+        get_valid_shoulder_keymap(settings_get_shoulder_keymap(state_store).value_or(DEFAULT_SHOULDER_KEYMAP)),
+        rotation
     );
-    sys_styling.subscribe_to_changes([&state_store, &sys_styling](SystemStyling::ChangeId) {
+    sys_styling.subscribe_to_changes([&](SystemStyling::ChangeId change_id) {
         // Persist changes
         settings_set_color_theme(state_store, sys_styling.get_color_theme());
         settings_set_font_name(state_store, sys_styling.get_font_name());
         settings_set_font_size(state_store, sys_styling.get_font_size());
         settings_set_shoulder_keymap(state_store, sys_styling.get_shoulder_keymap());
+        settings_set_rotation(state_store, sys_styling.get_rotation());
+
+        if (change_id == SystemStyling::ChangeId::ROTATION)
+        {
+            // Take effect immediately: resize the logical surface (views
+            // read SCREEN_WIDTH/HEIGHT live) and the rotation scratch
+            // buffer. The physical video surface/mode is unchanged.
+            rotation = sys_styling.get_rotation();
+
+            SCREEN_WIDTH = is_rotation_swapped(rotation) ? physical_height : physical_width;
+            SCREEN_HEIGHT = is_rotation_swapped(rotation) ? physical_width : physical_height;
+
+            SDL_FreeSurface(screen);
+            screen = SDL_CreateRGBSurface(SDL_HWSURFACE, SCREEN_WIDTH, SCREEN_HEIGHT, 32, 0, 0, 0, 0);
+            set_render_surface_format(screen->format);
+
+            sync_rotated_buffer();
+        }
     });
 
     // Text Styling
@@ -287,10 +341,24 @@ int main(int argc, char **argv)
     FPSLimiter limit_fps(TARGET_FPS);
     const uint32_t avg_loop_time = 1000 / TARGET_FPS;
 
+    // Present the logical `screen` surface to the physical `video` surface,
+    // rotating through `rotated_buffer` first when a rotation is active.
+    auto present = [&]() {
+        if (rotated_buffer)
+        {
+            rotate_blit(screen, rotated_buffer, get_rotation_degrees(rotation));
+            SDL_BlitSurface(rotated_buffer, NULL, video, NULL);
+        }
+        else
+        {
+            SDL_BlitSurface(screen, NULL, video, NULL);
+        }
+        SDL_Flip(video);
+    };
+
     // Initial render
     view_stack.render(screen, true);
-    SDL_BlitSurface(screen, NULL, video, NULL);
-    SDL_Flip(video);
+    present();
 
     while (!quit)
     {
@@ -382,8 +450,7 @@ int main(int argc, char **argv)
 
             if (view_stack.render(screen, force_render))
             {
-                SDL_BlitSurface(screen, NULL, video, NULL);
-                SDL_Flip(video);
+                present();
             }
         }
 
@@ -405,6 +472,10 @@ int main(int argc, char **argv)
     state_store.flush();
 
     SDL_FreeSurface(screen);
+    if (rotated_buffer)
+    {
+        SDL_FreeSurface(rotated_buffer);
+    }
     SDL_Quit();
     xmlCleanupParser();
     

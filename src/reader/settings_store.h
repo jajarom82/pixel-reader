@@ -32,4 +32,8 @@ void settings_set_font_name(StateStore &state_store, const std::string &font_nam
 std::optional<uint32_t> settings_get_font_size(const StateStore &state_store);
 void settings_set_font_size(StateStore &state_store, uint32_t font_size);
 
+// Rotation
+std::optional<std::string> settings_get_rotation(const StateStore &state_store);
+void settings_set_rotation(StateStore &state_store, const std::string &rotation);
+
 #endif

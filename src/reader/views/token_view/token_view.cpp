@@ -91,6 +91,10 @@ struct TokenViewState
                   line_scroller.set_line_height_pixels(line_height);
                   line_scroller.reset_buffer();  // need to re-wrap lines if font-size changed
               }
+              else if (change_id == SystemStyling::ChangeId::ROTATION)
+              {
+                  line_scroller.reset_buffer();  // screen width changed, need to re-wrap
+              }
               needs_render = true;
           })),
           token_view_styling_sub_id(token_view_styling.subscribe_to_changes([this]() {
