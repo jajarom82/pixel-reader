@@ -7,6 +7,46 @@
 #include "reader/system_styling.h"
 #include "util/sdl_utils.h"
 
+#include <algorithm>
+
+namespace
+{
+
+// Marquee timing for a highlighted row whose title doesn't fit: pause at
+// the start, scroll left to reveal the rest, pause at the end, then loop.
+constexpr uint32_t MARQUEE_START_PAUSE_MS = 1000;
+constexpr uint32_t MARQUEE_END_PAUSE_MS = 600;
+constexpr float MARQUEE_PX_PER_SEC = 40.0f;
+
+// Pure function of elapsed time - no persistent state needed beyond a
+// Timer that gets reset whenever the highlighted row changes.
+int compute_marquee_offset(uint32_t elapsed_ms, int overflow_px)
+{
+    if (overflow_px <= 0)
+    {
+        return 0;
+    }
+
+    uint32_t scroll_ms = static_cast<uint32_t>(overflow_px / MARQUEE_PX_PER_SEC * 1000.0f);
+    uint32_t cycle_ms = MARQUEE_START_PAUSE_MS + scroll_ms + MARQUEE_END_PAUSE_MS;
+    uint32_t t = elapsed_ms % cycle_ms;
+
+    if (t < MARQUEE_START_PAUSE_MS)
+    {
+        return 0;
+    }
+    t -= MARQUEE_START_PAUSE_MS;
+
+    if (t < scroll_ms)
+    {
+        return static_cast<int>(t / 1000.0f * MARQUEE_PX_PER_SEC);
+    }
+
+    return overflow_px;
+}
+
+} // namespace
+
 uint32_t SelectionMenu::num_display_lines() const
 {
     return SCREEN_HEIGHT / line_height;
@@ -97,6 +137,7 @@ void SelectionMenu::set_cursor_pos(uint32_t new_cursor_pos)
     }
 
     cursor_pos = new_cursor_pos;
+    marquee_timer.reset();
     if (on_focus)
     {
         on_focus(cursor_pos);
@@ -149,6 +190,7 @@ bool SelectionMenu::render(SDL_Surface *dest_surface, bool force_render)
     SDL_FillRect(dest_surface, &rect, rect_bg_color);
 
     // Draw lines
+    bool row_needs_marquee = false;
     uint32_t num_lines = num_display_lines();
     for (uint32_t i = 0; i < num_lines; ++i)
     {
@@ -169,38 +211,85 @@ bool SelectionMenu::render(SDL_Surface *dest_surface, bool force_render)
             SDL_FillRect(dest_surface, &rect, rect_highlight_color);
         }
 
+        // Pre-render the right-aligned label (if any) first, so the title
+        // below knows how much width to leave for it and never draws over it.
+        surface_unique_ptr label_surface;
+        int reserved_w = 0;
+        if (!entry.right_label.empty())
+        {
+            label_surface = surface_unique_ptr { TTF_RenderUTF8_Shaded(
+                loaded_font,
+                entry.right_label.c_str(),
+                is_highlighted ? hl_text_color : theme.secondary_text,
+                is_highlighted ? hl_bg_color : bg_color
+            ) };
+            if (label_surface)
+            {
+                reserved_w = label_surface->w + line_padding;
+            }
+        }
+        int avail_w = std::max(0, SCREEN_WIDTH - x - line_padding - reserved_w);
+
         // Draw text - directories are styled distinctly (secondary color +
-        // trailing slash, ls -F style) so they stand out from files.
+        // trailing slash, ls -F style); books with progress get an accent
+        // color so they're obviously "in progress" even when the title
+        // itself is too long to show the "% at the end" at a glance.
         {
             std::string display_text = entry.is_directory ? entry.text + "/" : entry.text;
 
             SDL_Color text_color = is_highlighted ?
                 hl_text_color :
-                (entry.is_directory ? theme.secondary_text : fg_color);
+                (entry.is_directory ?
+                    theme.secondary_text :
+                    (!entry.right_label.empty() ? theme.highlight_background : fg_color));
 
-            SDL_Rect rectMessage = {
-                x,
-                static_cast<Sint16>(y + line_padding / 2),
-                0, 0
-            };
             auto message = surface_unique_ptr { TTF_RenderUTF8_Shaded(
                 loaded_font,
                 display_text.c_str(),
                 text_color,
                 is_highlighted ? hl_bg_color : bg_color
             ) };
-            SDL_BlitSurface(message.get(), NULL, dest_surface, &rectMessage);
+
+            if (message)
+            {
+                SDL_Rect dest_rect = {
+                    x,
+                    static_cast<Sint16>(y + line_padding / 2),
+                    0, 0
+                };
+
+                if (message->w <= avail_w)
+                {
+                    SDL_BlitSurface(message.get(), NULL, dest_surface, &dest_rect);
+                }
+                else if (is_highlighted)
+                {
+                    // Doesn't fit and this is the selected row - scroll it
+                    // so the full title becomes readable over time.
+                    row_needs_marquee = true;
+                    int overflow = message->w - avail_w;
+                    int offset = compute_marquee_offset(marquee_timer.elapsed_ms(), overflow);
+                    SDL_Rect src_rect = {
+                        static_cast<Sint16>(offset),
+                        0,
+                        static_cast<Uint16>(avail_w),
+                        static_cast<Uint16>(message->h)
+                    };
+                    SDL_BlitSurface(message.get(), &src_rect, dest_surface, &dest_rect);
+                }
+                else
+                {
+                    // Not selected - just clip to leave room for the label,
+                    // rather than potentially drawing over it.
+                    SDL_Rect src_rect = {0, 0, static_cast<Uint16>(avail_w), static_cast<Uint16>(message->h)};
+                    SDL_BlitSurface(message.get(), &src_rect, dest_surface, &dest_rect);
+                }
+            }
         }
 
-        // Draw right-aligned label (e.g. read %), if any.
-        if (!entry.right_label.empty())
+        // Draw right-aligned label (e.g. read %) on top, if any.
+        if (label_surface)
         {
-            auto label_surface = surface_unique_ptr { TTF_RenderUTF8_Shaded(
-                loaded_font,
-                entry.right_label.c_str(),
-                is_highlighted ? hl_text_color : theme.secondary_text,
-                is_highlighted ? hl_bg_color : bg_color
-            ) };
             SDL_Rect label_rect = {
                 static_cast<Sint16>(SCREEN_WIDTH - label_surface->w - line_padding),
                 static_cast<Sint16>(y + line_padding / 2),
@@ -212,7 +301,22 @@ bool SelectionMenu::render(SDL_Surface *dest_surface, bool force_render)
         y += line_height;
     }
 
+    current_row_needs_marquee = row_needs_marquee;
+
     return true;
+}
+
+void SelectionMenu::on_tick(uint32_t)
+{
+    if (current_row_needs_marquee)
+    {
+        needs_render = true;
+    }
+}
+
+bool SelectionMenu::wants_continuous_render() const
+{
+    return current_row_needs_marquee;
 }
 
 bool SelectionMenu::is_done()
@@ -228,6 +332,7 @@ void SelectionMenu::on_move_down(uint32_t step)
             cursor_pos + step,
             static_cast<uint32_t>(entries.size()) - 1
         );
+        marquee_timer.reset();
 
         if (cursor_pos >= scroll_pos + num_display_lines())
         {
@@ -248,6 +353,7 @@ void SelectionMenu::on_move_up(uint32_t step)
     {
         cursor_pos = cursor_pos <= step ? 0 : cursor_pos - step;
         scroll_pos = std::min(scroll_pos, cursor_pos);
+        marquee_timer.reset();
 
         if (on_focus)
         {

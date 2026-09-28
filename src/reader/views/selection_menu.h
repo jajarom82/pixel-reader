@@ -3,6 +3,7 @@
 
 #include "reader/view.h"
 #include "util/throttled.h"
+#include "util/timer.h"
 
 #include <SDL/SDL_ttf.h>
 
@@ -47,6 +48,12 @@ class SelectionMenu: public View
 
     Throttled scroll_throttle;
 
+    // Marquee: when the highlighted row's title is too wide to fit (minus
+    // any right-aligned label), scroll it back and forth over time instead
+    // of silently clipping it, so the full title stays readable.
+    Timer marquee_timer;
+    bool current_row_needs_marquee = false;
+
     bool _is_done = false;
     std::function<void(uint32_t)> on_selection;
     std::function<void(uint32_t)> on_focus;
@@ -78,6 +85,8 @@ public:
     bool is_done() override;
     void on_keypress(SDLKey key) override;
     void on_keyheld(SDLKey key, uint32_t held_time_ms) override;
+    void on_tick(uint32_t elapsed_ms) override;
+    bool wants_continuous_render() const override;
 };
 
 #endif

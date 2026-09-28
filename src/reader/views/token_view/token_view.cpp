@@ -196,26 +196,34 @@ bool TokenView::render(SDL_Surface *dest_surface, bool force_render)
                 const auto *text_line = static_cast<const TextLine *>(line);
                 const char *s = text_line->text.c_str();
                 auto surface = surface_unique_ptr { TTF_RenderUTF8_Shaded(font, s, theme.main_text, theme.background) };
-                SDL_Rect dest_rect = {
-                    static_cast<Sint16>(line_padding + (text_line->centered ? (SCREEN_WIDTH - 2 * line_padding - surface->w) /2 : 0)),
-                    static_cast<Sint16>(line_y + line_padding / 2),
-                    0, 0
-                };
 
-                // The extra partial line must not spill past the title bar
-                // boundary - crop its bottom if needed. Earlier lines are
-                // already shifted up by pixel_offset, not down, so they
-                // never need this.
-                int avail_h = surface->h;
-                if (is_extra_line)
+                // TTF_RenderUTF8_Shaded returns null for an empty string on
+                // this SDL_ttf build, and blank TextLines ("") are a normal,
+                // common occurrence (used as padding around images) - must
+                // not dereference `surface` unconditionally below.
+                if (surface)
                 {
-                    avail_h = std::min(static_cast<int>(surface->h), std::max(0, state->line_pxl_limit_y() - dest_rect.y));
-                }
+                    SDL_Rect dest_rect = {
+                        static_cast<Sint16>(line_padding + (text_line->centered ? (SCREEN_WIDTH - 2 * line_padding - surface->w) /2 : 0)),
+                        static_cast<Sint16>(line_y + line_padding / 2),
+                        0, 0
+                    };
 
-                if (avail_h > 0)
-                {
-                    SDL_Rect src_rect = {0, 0, static_cast<Uint16>(surface->w), static_cast<Uint16>(avail_h)};
-                    SDL_BlitSurface(surface.get(), (avail_h < surface->h) ? &src_rect : nullptr, dest_surface, &dest_rect);
+                    // The extra partial line must not spill past the title bar
+                    // boundary - crop its bottom if needed. Earlier lines are
+                    // already shifted up by pixel_offset, not down, so they
+                    // never need this.
+                    int avail_h = surface->h;
+                    if (is_extra_line)
+                    {
+                        avail_h = std::min(static_cast<int>(surface->h), std::max(0, state->line_pxl_limit_y() - dest_rect.y));
+                    }
+
+                    if (avail_h > 0)
+                    {
+                        SDL_Rect src_rect = {0, 0, static_cast<Uint16>(surface->w), static_cast<Uint16>(avail_h)};
+                        SDL_BlitSurface(surface.get(), (avail_h < surface->h) ? &src_rect : nullptr, dest_surface, &dest_rect);
+                    }
                 }
             }
             else if (line->type == DisplayLine::Type::Image || (line->type == DisplayLine::Type::ImageRef && i == 0))

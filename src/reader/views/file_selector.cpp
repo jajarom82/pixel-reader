@@ -139,6 +139,16 @@ void FileSelector::on_keyheld(SDLKey key, uint32_t held_time_ms)
     state->menu.on_keyheld(key, held_time_ms);
 }
 
+void FileSelector::on_tick(uint32_t elapsed_ms)
+{
+    state->menu.on_tick(elapsed_ms);
+}
+
+bool FileSelector::wants_continuous_render() const
+{
+    return state->menu.wants_continuous_render();
+}
+
 void FileSelector::on_focus()
 {
     if (state->on_view_focus)
