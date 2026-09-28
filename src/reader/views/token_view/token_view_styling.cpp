@@ -1,22 +1,32 @@
 #include "./token_view_styling.h"
 
+#include "reader/config.h"
+#include "util/math.h"
+
 #include <unordered_map>
 
 struct TokenViewStylingState
 {
     bool show_title_bar;
     ProgressReporting progress_reporting;
+    uint32_t auto_scroll_speed;
 
     uint32_t next_subscriber_id = 1;
     std::unordered_map<uint32_t, std::function<void()>> subscribers;
 
-    TokenViewStylingState(bool show_title_bar, ProgressReporting progress_reporting)
-        : show_title_bar(show_title_bar), progress_reporting(progress_reporting)
+    TokenViewStylingState(bool show_title_bar, ProgressReporting progress_reporting, uint32_t auto_scroll_speed)
+        : show_title_bar(show_title_bar),
+          progress_reporting(progress_reporting),
+          auto_scroll_speed(auto_scroll_speed)
     {}
 };
 
-TokenViewStyling::TokenViewStyling(bool show_title_bar, ProgressReporting progress_reporting)
-    : state(std::make_unique<TokenViewStylingState>(show_title_bar, progress_reporting))
+TokenViewStyling::TokenViewStyling(bool show_title_bar, ProgressReporting progress_reporting, uint32_t auto_scroll_speed)
+    : state(std::make_unique<TokenViewStylingState>(
+          show_title_bar,
+          progress_reporting,
+          bound(auto_scroll_speed, MIN_AUTO_SCROLL_SPEED, MAX_AUTO_SCROLL_SPEED)
+      ))
 {
 }
 
@@ -56,6 +66,21 @@ void TokenViewStyling::set_progress_reporting(ProgressReporting progress_reporti
     if (state->progress_reporting != progress_reporting)
     {
         state->progress_reporting = progress_reporting;
+        notify_subscribers();
+    }
+}
+
+uint32_t TokenViewStyling::get_auto_scroll_speed() const
+{
+    return state->auto_scroll_speed;
+}
+
+void TokenViewStyling::set_auto_scroll_speed(uint32_t speed)
+{
+    speed = bound(speed, MIN_AUTO_SCROLL_SPEED, MAX_AUTO_SCROLL_SPEED);
+    if (state->auto_scroll_speed != speed)
+    {
+        state->auto_scroll_speed = speed;
         notify_subscribers();
     }
 }

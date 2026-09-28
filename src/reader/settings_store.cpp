@@ -13,6 +13,7 @@ constexpr const char *SETTINGS_SHOULDER_KEYMAP = "shoulder_keymap";
 constexpr const char *SETTINGS_KEY_COLOR_THEME = "color_theme";
 constexpr const char *SETTINGS_KEY_FONT_NAME = "font_name";
 constexpr const char *SETTINGS_KEY_FONT_SIZE = "font_size";
+constexpr const char *SETTINGS_KEY_AUTO_SCROLL_SPEED = "auto_scroll_speed";
 constexpr const char *SETTINGS_PROGRESS_REPORTING = "progress_reporting";
 constexpr const char *SETTINGS_KEY_ROTATION = "rotation";
 
@@ -145,6 +146,21 @@ std::optional<uint32_t> settings_get_font_size(const StateStore &state_store)
 void settings_set_font_size(StateStore &state_store, uint32_t font_size)
 {
     state_store.set_setting(SETTINGS_KEY_FONT_SIZE, std::to_string(font_size));
+}
+
+std::optional<uint32_t> settings_get_auto_scroll_speed(const StateStore &state_store)
+{
+    auto speed = state_store.get_setting(SETTINGS_KEY_AUTO_SCROLL_SPEED);
+    if (!speed)
+    {
+        return std::nullopt;
+    }
+    return try_decode_uint(*speed);
+}
+
+void settings_set_auto_scroll_speed(StateStore &state_store, uint32_t speed)
+{
+    state_store.set_setting(SETTINGS_KEY_AUTO_SCROLL_SPEED, std::to_string(speed));
 }
 
 std::optional<std::string> settings_get_rotation(const StateStore &state_store)

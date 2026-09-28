@@ -20,6 +20,10 @@ class TokenView: public View
 
     void scroll(int num_lines);
 
+    void start_auto_scroll();
+    void stop_auto_scroll();
+    void adjust_auto_scroll_speed(int dir);
+
 public:
     TokenView(
         std::shared_ptr<DocReader> reader,
@@ -33,6 +37,8 @@ public:
     bool is_done() override;
     void on_keypress(SDLKey key) override;
     void on_keyheld(SDLKey key, uint32_t held_time_ms) override;
+    void on_tick(uint32_t elapsed_ms) override;
+    bool wants_continuous_render() const override;
 
     DocAddr get_address() const;
     void seek_to_address(DocAddr address);

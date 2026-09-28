@@ -310,12 +310,14 @@ int main(int argc, char **argv)
     // Text Styling
     TokenViewStyling token_view_styling(
         settings_get_show_title_bar(state_store).value_or(DEFAULT_SHOW_PROGRESS),
-        settings_get_progress_reporting(state_store).value_or(DEFAULT_PROGRESS_REPORTING)
+        settings_get_progress_reporting(state_store).value_or(DEFAULT_PROGRESS_REPORTING),
+        settings_get_auto_scroll_speed(state_store).value_or(DEFAULT_AUTO_SCROLL_SPEED)
     );
     token_view_styling.subscribe_to_changes([&token_view_styling, &state_store]() {
         // Persist changes
         settings_set_show_title_bar(state_store, token_view_styling.get_show_title_bar());
         settings_set_progress_reporting(state_store, token_view_styling.get_progress_reporting());
+        settings_set_auto_scroll_speed(state_store, token_view_styling.get_auto_scroll_speed());
     });
 
     // Setup views

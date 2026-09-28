@@ -47,4 +47,11 @@
 
 #define DEFAULT_PROGRESS_REPORTING ProgressReporting::GLOBAL_PERCENT
 
+#define MIN_AUTO_SCROLL_SPEED     1
+#define MAX_AUTO_SCROLL_SPEED     10
+#define DEFAULT_AUTO_SCROLL_SPEED 5
+// Pixels/sec of smooth scroll per speed level, e.g. level 5 = 75px/sec.
+// A starting guess - easy to retune here once tried on real hardware.
+#define AUTO_SCROLL_PIXELS_PER_SEC_PER_LEVEL 15.0f
+
 #endif

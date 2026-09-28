@@ -4,6 +4,7 @@
 #include "./token_view_styling.h"
 
 #include "doc_api/doc_reader.h"
+#include "reader/config.h"
 #include "reader/system_styling.h"
 #include "reader/shoulder_keymap.h"
 #include "sys/keymap.h"
@@ -11,6 +12,7 @@
 #include "util/sdl_utils.h"
 #include "util/throttled.h"
 
+#include <algorithm>
 #include <stdexcept>
 namespace {
 
@@ -53,6 +55,15 @@ struct TokenViewState
 
     Throttled line_scroll_throttle;
     Throttled page_scroll_throttle;
+
+    // Pixel-level auto-scroll. pixel_offset is how far scrolled into the
+    // current top line (0..line_height-1); pixel_accum carries fractional
+    // pixels between ticks so slow speeds still scroll smoothly rather
+    // than getting truncated to 0 every tick.
+    bool auto_scroll_active = false;
+    float pixel_accum = 0.0f;
+    int pixel_offset = 0;
+    Throttled auto_scroll_speed_throttle;
 
     int num_display_lines() const
     {
@@ -116,7 +127,8 @@ struct TokenViewState
               line_height
           ),
           line_scroll_throttle(250, 50),
-          page_scroll_throttle(750, 150)
+          page_scroll_throttle(750, 150),
+          auto_scroll_speed_throttle(400, 150)
     {
     }
 
@@ -165,13 +177,20 @@ bool TokenView::render(SDL_Surface *dest_surface, bool force_render)
 
     int num_text_display_lines = state->num_text_display_lines();
     const Uint16 padding_y = state->excess_pxl_y() / 2;
-    Sint16 line_y = padding_y;
+    const int pixel_offset = state->pixel_offset;
+    Sint16 line_y = static_cast<Sint16>(padding_y - pixel_offset);
 
-    for (int i = 0; i < num_text_display_lines; ++i)
+    // While auto-scrolling, draw one extra (usually partial) line so the
+    // next line's top edge is already visible as it scrolls up into view.
+    int num_lines_to_draw = num_text_display_lines + (pixel_offset != 0 ? 1 : 0);
+
+    for (int i = 0; i < num_lines_to_draw; ++i)
     {
         const DisplayLine *line = state->line_scroller.get_line_relative(i);
         if (line)
         {
+            bool is_extra_line = (pixel_offset != 0 && i == num_lines_to_draw - 1);
+
             if (line->type == DisplayLine::Type::Text)
             {
                 const auto *text_line = static_cast<const TextLine *>(line);
@@ -182,7 +201,22 @@ bool TokenView::render(SDL_Surface *dest_surface, bool force_render)
                     static_cast<Sint16>(line_y + line_padding / 2),
                     0, 0
                 };
-                SDL_BlitSurface(surface.get(), nullptr, dest_surface, &dest_rect);
+
+                // The extra partial line must not spill past the title bar
+                // boundary - crop its bottom if needed. Earlier lines are
+                // already shifted up by pixel_offset, not down, so they
+                // never need this.
+                int avail_h = surface->h;
+                if (is_extra_line)
+                {
+                    avail_h = std::min(static_cast<int>(surface->h), std::max(0, state->line_pxl_limit_y() - dest_rect.y));
+                }
+
+                if (avail_h > 0)
+                {
+                    SDL_Rect src_rect = {0, 0, static_cast<Uint16>(surface->w), static_cast<Uint16>(avail_h)};
+                    SDL_BlitSurface(surface.get(), (avail_h < surface->h) ? &src_rect : nullptr, dest_surface, &dest_rect);
+                }
             }
             else if (line->type == DisplayLine::Type::Image || (line->type == DisplayLine::Type::ImageRef && i == 0))
             {
@@ -347,6 +381,36 @@ void TokenView::scroll(int num_lines)
 
 void TokenView::on_keypress(SDLKey key)
 {
+    // Fixed bindings while auto-scrolling, independent of the remappable
+    // shoulder_keymap used for page-turning below: L2/R2 always adjust
+    // speed, and any directional press or Y again stops it (safety net -
+    // easy to get out of even if speed/toggle bindings are forgotten).
+    if (state->auto_scroll_active)
+    {
+        switch (key) {
+            case SW_BTN_L2:
+                adjust_auto_scroll_speed(-1);
+                return;
+            case SW_BTN_R2:
+                adjust_auto_scroll_speed(1);
+                return;
+            case SW_BTN_Y:
+            case SW_BTN_UP:
+            case SW_BTN_DOWN:
+            case SW_BTN_LEFT:
+            case SW_BTN_RIGHT:
+                stop_auto_scroll();
+                return;
+            default:
+                break;
+        }
+    }
+    else if (key == SW_BTN_Y)
+    {
+        start_auto_scroll();
+        return;
+    }
+
     switch (key) {
         case SW_BTN_UP:
             scroll(-1);
@@ -391,6 +455,15 @@ void TokenView::on_keypress(SDLKey key)
 
 void TokenView::on_keyheld(SDLKey key, uint32_t held_time_ms)
 {
+    if (state->auto_scroll_active && (key == SW_BTN_L2 || key == SW_BTN_R2))
+    {
+        if (state->auto_scroll_speed_throttle(held_time_ms))
+        {
+            on_keypress(key);
+        }
+        return;
+    }
+
     switch (key) {
         case SW_BTN_UP:
         case SW_BTN_DOWN:
@@ -418,6 +491,85 @@ void TokenView::on_keyheld(SDLKey key, uint32_t held_time_ms)
 bool TokenView::is_done()
 {
     return false;
+}
+
+void TokenView::on_tick(uint32_t elapsed_ms)
+{
+    if (!state->auto_scroll_active)
+    {
+        return;
+    }
+
+    float pixels_per_sec = static_cast<float>(state->token_view_styling.get_auto_scroll_speed()) * AUTO_SCROLL_PIXELS_PER_SEC_PER_LEVEL;
+    state->pixel_accum += pixels_per_sec * static_cast<float>(elapsed_ms) / 1000.0f;
+
+    int whole_pixels = static_cast<int>(state->pixel_accum);
+    if (whole_pixels <= 0)
+    {
+        return;
+    }
+    state->pixel_accum -= whole_pixels;
+    state->pixel_offset += whole_pixels;
+
+    while (state->pixel_offset >= state->line_height)
+    {
+        int amount = get_bounded_scroll_amount(state->line_scroller, state->num_text_display_lines(), 1);
+        if (amount == 0)
+        {
+            // Reached the end of the book.
+            state->auto_scroll_active = false;
+            state->pixel_offset = 0;
+            state->pixel_accum = 0.0f;
+            break;
+        }
+
+        state->line_scroller.seek_lines_relative(amount);
+        state->pixel_offset -= state->line_height;
+
+        if (state->on_scroll)
+        {
+            state->on_scroll(get_address());
+        }
+    }
+
+    state->needs_render = true;
+}
+
+bool TokenView::wants_continuous_render() const
+{
+    return state->auto_scroll_active;
+}
+
+void TokenView::start_auto_scroll()
+{
+    state->auto_scroll_active = true;
+    state->pixel_accum = 0.0f;
+    state->pixel_offset = 0;
+}
+
+void TokenView::stop_auto_scroll()
+{
+    if (!state->auto_scroll_active)
+    {
+        return;
+    }
+    state->auto_scroll_active = false;
+
+    // Snap back to a whole line - the rest of this view assumes
+    // pixel-exact line boundaries outside of an active auto-scroll.
+    if (state->pixel_offset > state->line_height / 2)
+    {
+        scroll(1);
+    }
+    state->pixel_offset = 0;
+    state->pixel_accum = 0.0f;
+    state->needs_render = true;
+}
+
+void TokenView::adjust_auto_scroll_speed(int dir)
+{
+    uint32_t speed = state->token_view_styling.get_auto_scroll_speed();
+    state->token_view_styling.set_auto_scroll_speed(speed + dir);
 }
 
 DocAddr TokenView::get_address() const
