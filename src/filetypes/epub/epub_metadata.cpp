@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <iostream>
 #include <optional>
+#include <sstream>
 
 NavPoint::NavPoint(const std::string &label)
     : NavPoint(label, "", "")
@@ -129,6 +130,55 @@ std::vector<std::string> parse_package_spine(xmlNodePtr node)
     return spine_ids;
 }
 
+bool manifest_item_has_property(const ManifestItem &item, const std::string &property)
+{
+    std::istringstream tokens(item.properties);
+    std::string token;
+    while (tokens >> token)
+    {
+        if (token == property)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+// EPUB3: a manifest item marked properties="cover-image". EPUB2 fallback:
+// <metadata><meta name="cover" content="manifest-id"/></metadata>.
+std::string find_cover_manifest_id(xmlNodePtr package_node, const PackageContents &package)
+{
+    for (const auto &[id, item] : package.id_to_manifest_item)
+    {
+        if (manifest_item_has_property(item, "cover-image"))
+        {
+            return id;
+        }
+    }
+
+    xmlNodePtr metadata = elem_first_by_name(
+        elem_first_child(elem_first_by_name(package_node, BAD_CAST "package")),
+        BAD_CAST "metadata"
+    );
+    xmlNodePtr meta = elem_first_by_name(elem_first_child(metadata), BAD_CAST "meta");
+    while (meta)
+    {
+        const xmlChar *name_attr = xmlGetProp(meta, BAD_CAST "name");
+        if (name_attr && xmlStrEqual(name_attr, BAD_CAST "cover"))
+        {
+            const xmlChar *content_attr = xmlGetProp(meta, BAD_CAST "content");
+            if (content_attr && package.id_to_manifest_item.count((const char *)content_attr))
+            {
+                return (const char *)content_attr;
+            }
+            break;
+        }
+        meta = elem_next_by_name(meta, BAD_CAST "meta");
+    }
+
+    return {};
+}
+
 }  // namespace parse_package
 
 bool epub_parse_package_contents(const std::string &rootfile_path, const char *package_xml, PackageContents &out_package)
@@ -161,6 +211,8 @@ bool epub_parse_package_contents(const std::string &rootfile_path, const char *p
             }
         }
     }
+
+    out_package.cover_manifest_id = parse_package::find_cover_manifest_id(node, out_package);
 
     xmlFreeDoc(package_doc);
 

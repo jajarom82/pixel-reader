@@ -1,19 +1,17 @@
 #include "./file_selector.h"
 
+#include "./browse_state.h"
 #include "./selection_menu.h"
-#include "filetypes/open_doc.h"
 #include "reader/state_store.h"
 #include "reader/system_styling.h"
 #include "sys/filesystem.h"
 
 #include <filesystem>
-#include <iostream>
 #include <vector>
 
 struct FSState
 {
-    std::filesystem::path path;
-    std::vector<FSEntry> path_entries;
+    BrowseState browse;
     std::function<void(const std::filesystem::path &)> on_file_selected;
     std::function<void(const std::filesystem::path &)> on_file_focus;
     std::function<void()> on_view_focus;
@@ -22,7 +20,7 @@ struct FSState
     SelectionMenu menu;
 
     FSState(std::filesystem::path path, SystemStyling &styling, StateStore &state_store)
-        : path(path),
+        : browse(std::move(path)),
           state_store(state_store),
           menu(styling)
     {
@@ -31,29 +29,17 @@ struct FSState
 
 namespace {
 
-void refresh_path_entries(FSState *s)
+std::vector<MenuEntry> build_menu_entries(FSState *s)
 {
-    s->path_entries.clear();
-    if (s->path.has_parent_path() && s->path != s->path.root_path())
-    {
-        s->path_entries.push_back(FSEntry::directory(".."));
-    }
-
-    for (const auto &entry : directory_listing(s->path)) {
-        if (entry.is_dir || file_type_is_supported(entry.name)) {
-            s->path_entries.push_back(entry);
-        }
-    }
-
     std::vector<MenuEntry> menu_entries;
-    for (const auto &entry : s->path_entries)
+    for (const auto &entry : s->browse.get_entries())
     {
         std::string right_label;
         if (!entry.is_dir)
         {
             // Cheap: only a couple of key/value lookups, no need to open
             // the book to know how far into it we got last time.
-            auto book_id = s->state_store.get_book_id_for_path(s->path / entry.name);
+            auto book_id = s->state_store.get_book_id_for_path(s->browse.get_path() / entry.name);
             if (book_id)
             {
                 auto progress = s->state_store.get_book_progress(*book_id);
@@ -65,89 +51,50 @@ void refresh_path_entries(FSState *s)
         }
         menu_entries.push_back(MenuEntry(entry.name, entry.is_dir, right_label));
     }
-    s->menu.set_entries(menu_entries);
+    return menu_entries;
+}
+
+void refresh_menu(FSState *s)
+{
+    s->menu.set_entries(build_menu_entries(s));
 }
 
 void on_menu_entry_selected(FSState *s, uint32_t menu_index)
 {
-    if (s->path_entries.empty())
-    {
-        return;
-    }
+    auto result = s->browse.enter(menu_index);
 
-    const FSEntry &entry = s->path_entries[menu_index];
-    if (entry.is_dir)
-    {
-        if (entry.name == "..")
-        {
-            std::string highlight_name = s->path.filename();
-
-            s->path = s->path.parent_path();
-            refresh_path_entries(s);
-            s->menu.set_cursor_pos(highlight_name);
-        }
-        else
-        {
-            // Go down a directory
-            s->path /= entry.name;
-            refresh_path_entries(s);
-            s->menu.set_cursor_pos(1); // get past ".." entry
-        }
-    }
-    else
+    if (result.file_selected)
     {
         if (s->on_file_selected)
         {
-            s->on_file_selected(s->path / entry.name);
+            s->on_file_selected(*result.file_selected);
         }
+    }
+    else if (result.nav_action == BrowseNavAction::WentUp)
+    {
+        refresh_menu(s);
+        s->menu.set_cursor_pos(result.restore_name);
+    }
+    else if (result.nav_action == BrowseNavAction::WentDown)
+    {
+        refresh_menu(s);
+        s->menu.set_cursor_pos(1); // get past ".." entry
     }
 }
 
 void on_menu_entry_focused(FSState *s, uint32_t menu_index)
 {
-    if (!s->path_entries.empty() && s->on_file_focus)
+    const auto &entries = s->browse.get_entries();
+    if (!entries.empty() && s->on_file_focus && menu_index < entries.size())
     {
-        const auto &entry = s->path_entries[menu_index];
-        s->on_file_focus(s->path / entry.name);
+        s->on_file_focus(s->browse.get_path() / entries[menu_index].name);
     }
-}
-
-std::filesystem::path sanitize_starting_path(std::filesystem::path path)
-{
-    path = std::filesystem::absolute(path);
-
-    if (path.has_parent_path())
-    {
-        // get the directory component
-        path = path.parent_path();
-    }
-
-    // make sure path exists
-    while (!std::filesystem::is_directory(path))
-    {
-        std::cerr << "Directory " << path << " does not exist" << std::endl;
-        if (path.has_parent_path() && path != path.root_path())
-        {
-            path = path.parent_path();
-        }
-        else
-        {
-            path = std::filesystem::current_path();
-            break;
-        }
-    }
-
-    return path;
 }
 
 } // namespace
 
 FileSelector::FileSelector(std::filesystem::path path, SystemStyling &styling, StateStore &state_store)
-    : state(std::make_unique<FSState>(
-          sanitize_starting_path(path),
-          styling,
-          state_store
-      ))
+    : state(std::make_unique<FSState>(path, styling, state_store))
 {
     state->menu.set_on_selection([this](uint32_t menu_index) {
         on_menu_entry_selected(this->state.get(), menu_index);
@@ -157,7 +104,7 @@ FileSelector::FileSelector(std::filesystem::path path, SystemStyling &styling, S
         on_menu_entry_focused(this->state.get(), menu_index);
     });
 
-    refresh_path_entries(state.get());
+    refresh_menu(state.get());
     if (path.has_filename())
     {
         state->menu.set_cursor_pos(path.filename());

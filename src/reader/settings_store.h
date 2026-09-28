@@ -44,4 +44,8 @@ void settings_set_custom_background_color(StateStore &state_store, SDL_Color col
 std::optional<SDL_Color> settings_get_custom_main_text_color(const StateStore &state_store);
 void settings_set_custom_main_text_color(StateStore &state_store, SDL_Color color);
 
+// Browse view mode ("list" or "gallery")
+std::optional<std::string> settings_get_browse_view_mode(const StateStore &state_store);
+void settings_set_browse_view_mode(StateStore &state_store, const std::string &mode);
+
 #endif

@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 
+struct StateStore;
 struct SystemStyling;
 struct TokenViewStyling;
 
@@ -34,6 +35,7 @@ class SettingsView: public View
 
     SystemStyling &sys_styling;
     TokenViewStyling &token_view_styling;
+    StateStore &state_store;
     uint32_t styling_sub_id;
 
     std::vector<Row> rows;
@@ -44,12 +46,14 @@ class SettingsView: public View
     void on_change_shoulder_keymap(int dir);
     void on_change_rotation(int dir);
     void on_change_custom_color(bool is_background, int channel, int dir);
+    void on_change_browse_view_mode(int dir);
     void on_change_progress(int dir);
 
 public:
     SettingsView(
         SystemStyling &sys_styling,
         TokenViewStyling &token_view_styling,
+        StateStore &state_store,
         std::string font_name
     );
     virtual ~SettingsView();

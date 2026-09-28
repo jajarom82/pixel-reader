@@ -20,10 +20,12 @@
 SettingsView::SettingsView(
     SystemStyling &sys_styling,
     TokenViewStyling &token_view_styling,
+    StateStore &state_store,
     std::string font_name
 ) : font_name(font_name),
     sys_styling(sys_styling),
     token_view_styling(token_view_styling),
+    state_store(state_store),
     styling_sub_id(sys_styling.subscribe_to_changes([this](SystemStyling::ChangeId) {
         needs_render = true;
     }))
@@ -79,6 +81,16 @@ SettingsView::SettingsView(
     push_color_row("FG Red:", false, 0);
     push_color_row("FG Green:", false, 1);
     push_color_row("FG Blue:", false, 2);
+
+    rows.push_back({
+        [] { return std::string("Browse view:"); },
+        [this] {
+            auto mode = settings_get_browse_view_mode(state_store).value_or(DEFAULT_BROWSE_VIEW_MODE);
+            return mode == "gallery" ? std::string("Gallery") : std::string("List");
+        },
+        [this](int dir) { on_change_browse_view_mode(dir); },
+        nullptr
+    });
 
     rows.push_back({
         [] { return std::string("Progress:"); },
@@ -318,6 +330,14 @@ void SettingsView::on_change_custom_color(bool is_background, int channel, int d
     {
         sys_styling.set_color_theme("custom");
     }
+}
+
+void SettingsView::on_change_browse_view_mode(int)
+{
+    // Only two options - either arrow just toggles, matching how the
+    // Progress row (also a 2-option toggle) behaves.
+    auto mode = settings_get_browse_view_mode(state_store).value_or(DEFAULT_BROWSE_VIEW_MODE);
+    settings_set_browse_view_mode(state_store, mode == "gallery" ? "list" : "gallery");
 }
 
 void SettingsView::on_change_progress(int)

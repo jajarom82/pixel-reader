@@ -9,6 +9,7 @@
 #include "./color_theme_def.h"
 #include "./view_stack.h"
 #include "./views/file_selector.h"
+#include "./views/gallery_view.h"
 #include "./views/reader_bootstrap_view.h"
 #include "./views/settings_view.h"
 #include "./views/token_view/token_view_styling.h"
@@ -74,19 +75,31 @@ void initialize_views(
     else
     {
         auto browse_path = state_store.get_current_browse_path().value_or(DEFAULT_BROWSE_PATH);
-        std::shared_ptr<FileSelector> fs = std::make_shared<FileSelector>(
-            browse_path,
-            sys_styling,
-            state_store
-        );
+        bool use_gallery = settings_get_browse_view_mode(state_store).value_or(DEFAULT_BROWSE_VIEW_MODE) == "gallery";
 
-        fs->set_on_file_selected(load_book);
-        fs->set_on_file_focus([&state_store](std::string path) {
-            state_store.set_current_browse_path(path);
-        });
-        fs->set_on_view_focus([&state_store]() {
-            state_store.remove_current_book_path();
-        });
+        auto wire_browser = [&](auto &browser) {
+            browser->set_on_file_selected(load_book);
+            browser->set_on_file_focus([&state_store](const std::filesystem::path &path) {
+                state_store.set_current_browse_path(path);
+            });
+            browser->set_on_view_focus([&state_store]() {
+                state_store.remove_current_book_path();
+            });
+        };
+
+        std::shared_ptr<View> fs;
+        if (use_gallery)
+        {
+            auto gallery = std::make_shared<GalleryView>(browse_path, sys_styling, state_store);
+            wire_browser(gallery);
+            fs = gallery;
+        }
+        else
+        {
+            auto list_view = std::make_shared<FileSelector>(browse_path, sys_styling, state_store);
+            wire_browser(list_view);
+            fs = list_view;
+        }
 
         view_stack.push(fs);
 
@@ -325,6 +338,7 @@ int main(int argc, char **argv)
     std::shared_ptr<SettingsView> settings_view = std::make_shared<SettingsView>(
         sys_styling,
         token_view_styling,
+        state_store,
         SYSTEM_FONT
     );
 

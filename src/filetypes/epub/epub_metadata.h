@@ -38,6 +38,10 @@ struct PackageContents
     std::unordered_map<std::string, ManifestItem> id_to_manifest_item;
     std::vector<std::string> spine_ids;
     std::string toc_id;
+    // Manifest id of the cover image, if one was found (EPUB3
+    // properties="cover-image", or EPUB2 <meta name="cover" content="...">).
+    // Empty if no cover was declared.
+    std::string cover_manifest_id;
 };
 
 std::string epub_parse_rootfile_path(const char *container_xml);

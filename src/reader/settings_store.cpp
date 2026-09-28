@@ -22,6 +22,7 @@ constexpr const char *SETTINGS_KEY_CUSTOM_BG_B = "custom_bg_b";
 constexpr const char *SETTINGS_KEY_CUSTOM_FG_R = "custom_fg_r";
 constexpr const char *SETTINGS_KEY_CUSTOM_FG_G = "custom_fg_g";
 constexpr const char *SETTINGS_KEY_CUSTOM_FG_B = "custom_fg_b";
+constexpr const char *SETTINGS_KEY_BROWSE_VIEW_MODE = "browse_view_mode";
 
 std::optional<SDL_Color> get_color_setting(
     const StateStore &state_store,
@@ -174,4 +175,14 @@ std::optional<SDL_Color> settings_get_custom_main_text_color(const StateStore &s
 void settings_set_custom_main_text_color(StateStore &state_store, SDL_Color color)
 {
     set_color_setting(state_store, SETTINGS_KEY_CUSTOM_FG_R, SETTINGS_KEY_CUSTOM_FG_G, SETTINGS_KEY_CUSTOM_FG_B, color);
+}
+
+std::optional<std::string> settings_get_browse_view_mode(const StateStore &state_store)
+{
+    return state_store.get_setting(SETTINGS_KEY_BROWSE_VIEW_MODE);
+}
+
+void settings_set_browse_view_mode(StateStore &state_store, const std::string &mode)
+{
+    state_store.set_setting(SETTINGS_KEY_BROWSE_VIEW_MODE, mode);
 }
