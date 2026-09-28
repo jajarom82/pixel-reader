@@ -157,7 +157,8 @@ void draw_placeholder_tile(SDL_Surface *dest, const SDL_Rect &rect, const ColorT
     else
     {
         // Simple document shape: an outlined rect.
-        SDL_FillRect(dest, &rect, accent);
+        SDL_Rect outer = rect; // SDL_FillRect wants a non-const SDL_Rect*
+        SDL_FillRect(dest, &outer, accent);
         SDL_Rect inner = {
             static_cast<Sint16>(rect.x + 3),
             static_cast<Sint16>(rect.y + 3),

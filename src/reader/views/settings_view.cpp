@@ -18,43 +18,50 @@
 #include <filesystem>
 
 SettingsView::SettingsView(
-    SystemStyling &sys_styling,
-    TokenViewStyling &token_view_styling,
-    StateStore &state_store,
-    std::string font_name
-) : font_name(font_name),
-    sys_styling(sys_styling),
-    token_view_styling(token_view_styling),
-    state_store(state_store),
-    styling_sub_id(sys_styling.subscribe_to_changes([this](SystemStyling::ChangeId) {
+    SystemStyling &sys_styling_ref,
+    TokenViewStyling &token_view_styling_ref,
+    StateStore &state_store_ref,
+    std::string font_name_arg
+) : font_name(font_name_arg),
+    sys_styling(sys_styling_ref),
+    token_view_styling(token_view_styling_ref),
+    state_store(state_store_ref),
+    styling_sub_id(sys_styling_ref.subscribe_to_changes([this](SystemStyling::ChangeId) {
         needs_render = true;
     }))
 {
-    rows.push_back({
+    // Note: this constructor's own parameters are deliberately named
+    // differently than the same-named members (sys_styling,
+    // token_view_styling, state_store) - otherwise the parameters would
+    // shadow the members for the rest of this body, and a bare reference to
+    // e.g. `sys_styling` inside a [this]-capturing lambda below would bind
+    // to the (out-of-scope-after-construction) parameter instead of the
+    // member, which some compilers reject outright ("not captured").
+    rows.push_back(Row{
         [] { return std::string("Theme:"); },
         [this] { return sys_styling.get_color_theme(); },
         [this](int dir) { on_change_theme(dir); },
         nullptr
     });
-    rows.push_back({
+    rows.push_back(Row{
         [] { return std::string("Font size:"); },
         [this] { return std::to_string(sys_styling.get_font_size()); },
         [this](int dir) { on_change_font_size(dir); },
         nullptr
     });
-    rows.push_back({
+    rows.push_back(Row{
         [] { return std::string("Font:"); },
         [this] { return std::filesystem::path(sys_styling.get_font_name()).filename().stem().string(); },
         [this](int dir) { on_change_font_name(dir); },
         [this]() -> TTF_Font * { return sys_styling.get_loaded_font(); }
     });
-    rows.push_back({
+    rows.push_back(Row{
         [] { return std::string("Shoulder keymap:"); },
         [this] { return get_shoulder_keymap_display_name(sys_styling.get_shoulder_keymap()); },
         [this](int dir) { on_change_shoulder_keymap(dir); },
         nullptr
     });
-    rows.push_back({
+    rows.push_back(Row{
         [] { return std::string("Rotation:"); },
         [this] { return get_rotation_display_name(sys_styling.get_rotation()); },
         [this](int dir) { on_change_rotation(dir); },
@@ -62,7 +69,7 @@ SettingsView::SettingsView(
     });
 
     auto push_color_row = [this](std::string label, bool is_background, int channel) {
-        rows.push_back({
+        rows.push_back(Row{
             [label] { return label; },
             [this, is_background, channel] {
                 SDL_Color color = is_background ?
@@ -82,7 +89,7 @@ SettingsView::SettingsView(
     push_color_row("FG Green:", false, 1);
     push_color_row("FG Blue:", false, 2);
 
-    rows.push_back({
+    rows.push_back(Row{
         [] { return std::string("Browse view:"); },
         [this] {
             auto mode = settings_get_browse_view_mode(state_store).value_or(DEFAULT_BROWSE_VIEW_MODE);
@@ -92,7 +99,7 @@ SettingsView::SettingsView(
         nullptr
     });
 
-    rows.push_back({
+    rows.push_back(Row{
         [] { return std::string("Progress:"); },
         [this] {
             return std::string(

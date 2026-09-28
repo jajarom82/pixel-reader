@@ -169,6 +169,29 @@ public:
     }
 };
 
+// Portable substitute for SDL_WaitEventTimeout, which isn't declared in
+// every SDL1.2 build (notably absent from the Miyoo Mini cross-compile
+// toolchain's headers). Polls in a short sleep loop instead of a single
+// blocking call - still lets the CPU idle between polls, just with
+// POLL_STEP_MS granularity instead of an instant wake.
+bool poll_event_with_timeout(SDL_Event *event, uint32_t timeout_ms)
+{
+    constexpr uint32_t POLL_STEP_MS = 10;
+    uint32_t start = SDL_GetTicks();
+    while (true)
+    {
+        if (SDL_PollEvent(event))
+        {
+            return true;
+        }
+        if (SDL_GetTicks() - start >= timeout_ms)
+        {
+            return false;
+        }
+        SDL_Delay(POLL_STEP_MS);
+    }
+}
+
 bool quit = false;
 
 void signal_handler(int)
@@ -459,7 +482,7 @@ int main(int argc, char **argv)
 
         SDL_Event event;
         bool got_event = (!ran_user_code && !need_fast_ticks)
-            ? SDL_WaitEventTimeout(&event, IDLE_POLL_TIMEOUT_MS) != 0
+            ? poll_event_with_timeout(&event, IDLE_POLL_TIMEOUT_MS)
             : SDL_PollEvent(&event) != 0;
 
         while (got_event)
