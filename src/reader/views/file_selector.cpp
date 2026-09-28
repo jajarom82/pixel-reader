@@ -2,6 +2,7 @@
 
 #include "./selection_menu.h"
 #include "filetypes/open_doc.h"
+#include "reader/state_store.h"
 #include "reader/system_styling.h"
 #include "sys/filesystem.h"
 
@@ -17,10 +18,12 @@ struct FSState
     std::function<void(const std::filesystem::path &)> on_file_focus;
     std::function<void()> on_view_focus;
 
+    StateStore &state_store;
     SelectionMenu menu;
 
-    FSState(std::filesystem::path path, SystemStyling &styling)
+    FSState(std::filesystem::path path, SystemStyling &styling, StateStore &state_store)
         : path(path),
+          state_store(state_store),
           menu(styling)
     {
     }
@@ -45,7 +48,22 @@ void refresh_path_entries(FSState *s)
     std::vector<MenuEntry> menu_entries;
     for (const auto &entry : s->path_entries)
     {
-        menu_entries.push_back(MenuEntry(entry.name, entry.is_dir));
+        std::string right_label;
+        if (!entry.is_dir)
+        {
+            // Cheap: only a couple of key/value lookups, no need to open
+            // the book to know how far into it we got last time.
+            auto book_id = s->state_store.get_book_id_for_path(s->path / entry.name);
+            if (book_id)
+            {
+                auto progress = s->state_store.get_book_progress(*book_id);
+                if (progress && *progress > 0)
+                {
+                    right_label = std::to_string(*progress) + "%";
+                }
+            }
+        }
+        menu_entries.push_back(MenuEntry(entry.name, entry.is_dir, right_label));
     }
     s->menu.set_entries(menu_entries);
 }
@@ -124,10 +142,11 @@ std::filesystem::path sanitize_starting_path(std::filesystem::path path)
 
 } // namespace
 
-FileSelector::FileSelector(std::filesystem::path path, SystemStyling &styling)
+FileSelector::FileSelector(std::filesystem::path path, SystemStyling &styling, StateStore &state_store)
     : state(std::make_unique<FSState>(
           sanitize_starting_path(path),
-          styling
+          styling,
+          state_store
       ))
 {
     state->menu.set_on_selection([this](uint32_t menu_index) {

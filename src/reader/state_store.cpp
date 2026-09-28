@@ -1,5 +1,6 @@
 #include "./state_store.h"
 #include "util/key_value_file.h"
+#include "util/string_serialization.h"
 
 #include <fstream>
 #include <unordered_map>
@@ -10,6 +11,7 @@ namespace
 constexpr const char *ACTIVITY_KEY_BROWSER_PATH = "browser_path";
 constexpr const char *ACTIVITY_KEY_BOOK_PATH = "book_path";
 constexpr const char *ADDRESS_KEY = "address";
+constexpr const char *PROGRESS_KEY = "progress";
 
 /////////////////////////////////////
 // Activity Store
@@ -90,13 +92,43 @@ std::filesystem::path reader_cache_store_path_for_book(const std::filesystem::pa
     return base_path / (book_id + ".cache");
 }
 
+/////////////////////////////////////
+// Progress Store
+
+std::filesystem::path progress_store_path_for_book(const std::filesystem::path &base_path, const std::string &book_id)
+{
+    return base_path / (book_id + ".progress");
+}
+
+void write_book_progress(const std::filesystem::path &path, uint32_t percent)
+{
+    string_unordered_map kv = {
+        {PROGRESS_KEY, std::to_string(percent)}
+    };
+
+    write_key_value(path, kv);
+}
+
+std::optional<uint32_t> load_book_progress(const std::filesystem::path &path)
+{
+    auto kv = load_key_value(path);
+    auto it = kv.find(PROGRESS_KEY);
+    if (it == kv.end())
+    {
+        return std::nullopt;
+    }
+    return try_decode_uint(it->second);
+}
+
 } // namespace
 
 StateStore::StateStore(std::filesystem::path base_dir)
     : activity_store_path(base_dir / "activity"),
       book_data_root_path(base_dir / "books"),
       settings_store_path(base_dir / "settings"),
-      settings(load_key_value(settings_store_path))
+      settings(load_key_value(settings_store_path)),
+      book_ids_store_path(base_dir / "book_ids"),
+      book_ids(load_key_value(book_ids_store_path))
 {
     std::filesystem::create_directories(base_dir);
     std::filesystem::create_directories(book_data_root_path);
@@ -210,6 +242,56 @@ void StateStore::set_reader_cache(const std::string &book_id, const string_unord
     }
 }
 
+std::optional<std::string> StateStore::get_book_id_for_path(const std::filesystem::path &path) const
+{
+    auto it = book_ids.find(path.string());
+    if (it != book_ids.end())
+    {
+        return it->second;
+    }
+    return std::nullopt;
+}
+
+void StateStore::set_book_id_for_path(const std::filesystem::path &path, const std::string &book_id)
+{
+    auto key = path.string();
+    auto it = book_ids.find(key);
+    if (it == book_ids.end() || it->second != book_id)
+    {
+        book_ids[key] = book_id;
+        book_ids_dirty = true;
+    }
+}
+
+std::optional<uint32_t> StateStore::get_book_progress(const std::string &book_id) const
+{
+    auto it = book_progress.find(book_id);
+    if (it != book_progress.end())
+    {
+        return it->second;
+    }
+
+    auto loaded = load_book_progress(
+        progress_store_path_for_book(book_data_root_path, book_id)
+    );
+    if (loaded)
+    {
+        book_progress[book_id] = *loaded;
+    }
+
+    return loaded;
+}
+
+void StateStore::set_book_progress(const std::string &book_id, uint32_t percent)
+{
+    auto it = book_progress.find(book_id);
+    if (it == book_progress.end() || it->second != percent)
+    {
+        book_progress[book_id] = percent;
+        book_progress_dirty.emplace(book_id);
+    }
+}
+
 std::optional<std::string> StateStore::get_setting(const std::string &name) const
 {
     auto it = settings.find(name);
@@ -267,5 +349,23 @@ void StateStore::flush() const
     {
         write_key_value(settings_store_path, settings);
         settings_dirty = false;
+    }
+
+    if (book_ids_dirty)
+    {
+        write_key_value(book_ids_store_path, book_ids);
+        book_ids_dirty = false;
+    }
+
+    // book progress
+    {
+        for (const auto &book_id : book_progress_dirty)
+        {
+            write_book_progress(
+                progress_store_path_for_book(book_data_root_path, book_id),
+                book_progress[book_id]
+            );
+        }
+        book_progress_dirty.clear();
     }
 }

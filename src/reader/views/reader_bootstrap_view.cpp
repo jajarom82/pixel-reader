@@ -61,6 +61,8 @@ void ReaderBootstrapView::load_reader()
     state_store.set_current_book_path(book_path);
 
     auto book_id = reader->get_id();
+    state_store.set_book_id_for_path(book_path, book_id);
+
     auto reader_view = std::make_shared<ReaderView>(
         book_path,
         reader,
@@ -70,8 +72,9 @@ void ReaderBootstrapView::load_reader()
         view_stack
     );
 
-    reader_view->set_on_change_address([&state_store, book_id](DocAddr addr) {
+    reader_view->set_on_change_address([&state_store, book_id, reader](DocAddr addr) {
         state_store.set_book_address(book_id, addr);
+        state_store.set_book_progress(book_id, reader->get_global_progress_percent(addr));
     });
 
     view_stack.push(reader_view);

@@ -31,6 +31,19 @@ class StateStore {
     std::filesystem::path settings_store_path;
     string_unordered_map settings;
 
+    // path -> book id, so the book list can show per-book info (e.g. read %)
+    // without needing to open/parse each book.
+    mutable bool book_ids_dirty = false;
+    std::filesystem::path book_ids_store_path;
+    string_unordered_map book_ids;
+
+    // book progress (0-100), keyed by book id. Kept separate from
+    // book_addresses (whose flush() rewrites every entry it holds) so that
+    // just reading a progress value for display doesn't cause it to be
+    // rewritten to disk.
+    mutable std::unordered_map<std::string, uint32_t> book_progress;
+    mutable std::set<std::string> book_progress_dirty;
+
 public:
     StateStore(std::filesystem::path base_dir);
     virtual ~StateStore();
@@ -51,6 +64,14 @@ public:
     // reader cache
     const string_unordered_map &get_reader_cache(const std::string &book_id) const;
     void set_reader_cache(const std::string &book_id, const string_unordered_map &cache);
+
+    // path -> book id
+    std::optional<std::string> get_book_id_for_path(const std::filesystem::path &path) const;
+    void set_book_id_for_path(const std::filesystem::path &path, const std::string &book_id);
+
+    // book progress
+    std::optional<uint32_t> get_book_progress(const std::string &book_id) const;
+    void set_book_progress(const std::string &book_id, uint32_t percent);
 
     // generic settings
     std::optional<std::string> get_setting(const std::string &name) const;

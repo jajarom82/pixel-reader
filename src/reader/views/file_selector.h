@@ -11,6 +11,7 @@
 #include <string>
 
 struct FSState;
+struct StateStore;
 struct SystemStyling;
 
 class FileSelector: public View
@@ -19,7 +20,7 @@ class FileSelector: public View
 
 public:
     // Expects to receive a path to a file, or directory with trailing separator.
-    FileSelector(std::filesystem::path path, SystemStyling &styling);
+    FileSelector(std::filesystem::path path, SystemStyling &styling, StateStore &state_store);
     virtual ~FileSelector();
 
     bool render(SDL_Surface *dest_surface, bool force_render) override;

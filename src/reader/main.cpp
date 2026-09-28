@@ -76,7 +76,8 @@ void initialize_views(
         auto browse_path = state_store.get_current_browse_path().value_or(DEFAULT_BROWSE_PATH);
         std::shared_ptr<FileSelector> fs = std::make_shared<FileSelector>(
             browse_path,
-            sys_styling
+            sys_styling,
+            state_store
         );
 
         fs->set_on_file_selected(load_book);
