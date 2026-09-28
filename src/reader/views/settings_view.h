@@ -3,13 +3,29 @@
 
 #include "reader/view.h"
 
+#include <SDL/SDL_ttf.h>
+
+#include <functional>
 #include <string>
+#include <vector>
 
 struct SystemStyling;
 struct TokenViewStyling;
 
 class SettingsView: public View
 {
+    // A single adjustable menu row. Rows are data so new settings can be
+    // added without growing a hand-written if/else chain per feature.
+    struct Row
+    {
+        std::function<std::string()> get_label;
+        std::function<std::string()> get_value;
+        std::function<void(int dir)> on_change;
+        // Optional: font to render the value in (e.g. font-name preview).
+        // Null means use the system font.
+        std::function<TTF_Font *()> get_value_font;
+    };
+
     bool _is_done = false;
     bool needs_render = true;
     uint32_t line_selected = 0;
@@ -20,13 +36,13 @@ class SettingsView: public View
     TokenViewStyling &token_view_styling;
     uint32_t styling_sub_id;
 
-    int num_menu_items;
+    std::vector<Row> rows;
 
     void on_change_theme(int dir);
     void on_change_font_size(int dir);
     void on_change_font_name(int dir);
     void on_change_shoulder_keymap(int dir);
-    void on_change_progress();
+    void on_change_progress(int dir);
 
 public:
     SettingsView(

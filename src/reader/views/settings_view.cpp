@@ -13,6 +13,7 @@
 #include "util/sdl_font_cache.h"
 #include "util/sdl_utils.h"
 
+#include <algorithm>
 #include <filesystem>
 
 SettingsView::SettingsView(
@@ -24,9 +25,44 @@ SettingsView::SettingsView(
     token_view_styling(token_view_styling),
     styling_sub_id(sys_styling.subscribe_to_changes([this](SystemStyling::ChangeId) {
         needs_render = true;
-    })),
-    num_menu_items(5)
+    }))
 {
+    rows.push_back({
+        [] { return std::string("Theme:"); },
+        [this] { return sys_styling.get_color_theme(); },
+        [this](int dir) { on_change_theme(dir); },
+        nullptr
+    });
+    rows.push_back({
+        [] { return std::string("Font size:"); },
+        [this] { return std::to_string(sys_styling.get_font_size()); },
+        [this](int dir) { on_change_font_size(dir); },
+        nullptr
+    });
+    rows.push_back({
+        [] { return std::string("Font:"); },
+        [this] { return std::filesystem::path(sys_styling.get_font_name()).filename().stem().string(); },
+        [this](int dir) { on_change_font_name(dir); },
+        [this]() -> TTF_Font * { return sys_styling.get_loaded_font(); }
+    });
+    rows.push_back({
+        [] { return std::string("Shoulder keymap:"); },
+        [this] { return get_shoulder_keymap_display_name(sys_styling.get_shoulder_keymap()); },
+        [this](int dir) { on_change_shoulder_keymap(dir); },
+        nullptr
+    });
+    rows.push_back({
+        [] { return std::string("Progress:"); },
+        [this] {
+            return std::string(
+                token_view_styling.get_progress_reporting() == ProgressReporting::CHAPTER_PERCENT ?
+                    "Chapter %" :
+                    "Book %"
+            );
+        },
+        [this](int dir) { on_change_progress(dir); },
+        nullptr
+    });
 }
 
 SettingsView::~SettingsView()
@@ -39,17 +75,16 @@ bool SettingsView::render(SDL_Surface *dest_surface, bool force_render)
     if (needs_render || force_render)
     {
         TTF_Font *sys_font = cached_load_font(font_name, sys_styling.get_font_size());
-        TTF_Font *user_font = sys_styling.get_loaded_font();
         const auto &theme = sys_styling.get_loaded_color_theme();
 
         constexpr int style_normal = 0;
         constexpr int style_hl = 1;
         constexpr int style_label = 2;
 
-        auto render_text = [&](const char *str, int style, TTF_Font *font = nullptr) {
+        auto render_text = [&](const std::string &str, int style, TTF_Font *font = nullptr) {
             return surface_unique_ptr { TTF_RenderUTF8_Shaded(
                 font ? font : sys_font,
-                str,
+                str.c_str(),
                 style == style_normal ?
                     theme.main_text :
                     (style == style_hl ? theme.highlight_text : theme.secondary_text),
@@ -62,63 +97,42 @@ bool SettingsView::render(SDL_Surface *dest_surface, bool force_render)
         auto left_arrow = render_text("◂", style_hl);
         auto right_arrow = render_text("▸", style_hl);
 
-        auto theme_label = render_text("Theme:", style_label);
-        auto theme_value = render_text(
-            sys_styling.get_color_theme().c_str(),
-            line_selected == 0 ? style_hl : style_normal
-        );
+        struct RenderedRow
+        {
+            surface_unique_ptr label;
+            surface_unique_ptr value;
+        };
 
-        auto font_size_label = render_text("Font size:", style_label);
-        auto font_size_value = render_text(
-            std::to_string(sys_styling.get_font_size()).c_str(),
-            line_selected == 1 ? style_hl : style_normal
-        );
+        std::vector<RenderedRow> rendered_rows;
+        for (uint32_t i = 0; i < rows.size(); ++i)
+        {
+            rendered_rows.push_back({
+                render_text(rows[i].get_label(), style_label),
+                render_text(
+                    rows[i].get_value(),
+                    line_selected == i ? style_hl : style_normal,
+                    rows[i].get_value_font ? rows[i].get_value_font() : nullptr
+                )
+            });
+        }
 
-        auto font_name_label = render_text("Font:", style_label);
-        auto font_name_value = render_text(
-            std::filesystem::path(sys_styling.get_font_name()).filename().stem().string().c_str(),
-            line_selected == 2 ? style_hl : style_normal,
-            user_font
-        );
-
-        auto shoulder_keymap_label = render_text("Shoulder keymap:", style_label);
-        auto shoulder_keymap_value = render_text(
-            get_shoulder_keymap_display_name(
-                sys_styling.get_shoulder_keymap()
-            ).c_str(),
-            line_selected == 3 ? style_hl : style_normal
-        );
-
-        auto progress_label = render_text("Progress:", style_label);
-        auto progress_value = render_text(
-            token_view_styling.get_progress_reporting() == ProgressReporting::CHAPTER_PERCENT ?
-            "Chapter %" :
-            "Book %",
-            line_selected == 4 ? style_hl : style_normal
-        );
+        int num_menu_items = static_cast<int>(rows.size());
 
         Uint16 content_w;
         {
             int arrow_w = left_arrow->w + right_arrow->w;
-            std::vector<int> widths {
-                theme_label->w,
-                theme_value->w + arrow_w,
-                font_size_label->w,
-                font_size_value->w + arrow_w,
-                font_name_label->w,
-                font_name_value->w + arrow_w,
-                shoulder_keymap_label->w,
-                shoulder_keymap_value->w + arrow_w,
-                progress_label->w,
-                progress_value->w + arrow_w
-            };
+            std::vector<int> widths;
+            for (const auto &row : rendered_rows)
+            {
+                widths.push_back(row.label->w);
+                widths.push_back(row.value->w + arrow_w);
+            }
             content_w = *std::max_element(widths.begin(), widths.end());
         }
 
-        int num_menu_items = 5;
         Uint16 text_padding = 5;
         Uint16 max_content_h = SCREEN_HEIGHT - DIALOG_BORDER_WIDTH * 2;
-        Uint16 line_height = theme_label->h + theme_value->h;
+        Uint16 line_height = rendered_rows[0].label->h + rendered_rows[0].value->h;
         int max_lines = std::max(1, (max_content_h + text_padding) / (line_height + text_padding));
         int num_lines_shown = std::min(num_menu_items, max_lines);
         {
@@ -176,38 +190,20 @@ bool SettingsView::render(SDL_Surface *dest_surface, bool force_render)
                 return i >= scroll_position && i <= scroll_position + num_lines_shown - 1;
             };
 
-            if (is_line_shown(0))
+            uint32_t rendered_count = 0;
+            for (uint32_t i = 0; i < rows.size(); ++i)
             {
-                push_text(theme_label.get());
-                push_text(theme_value.get(), line_selected == 0);
-                rect.y += text_padding;
-            }
+                if (is_line_shown(i))
+                {
+                    push_text(rendered_rows[i].label.get());
+                    push_text(rendered_rows[i].value.get(), line_selected == i);
 
-            if (is_line_shown(1))
-            {
-                push_text(font_size_label.get());
-                push_text(font_size_value.get(), line_selected == 1);
-                rect.y += text_padding;
-            }
-
-            if (is_line_shown(2))
-            {
-                push_text(font_name_label.get());
-                push_text(font_name_value.get(), line_selected == 2);
-                rect.y += text_padding;
-            }
-
-            if (is_line_shown(3))
-            {
-                push_text(shoulder_keymap_label.get());
-                push_text(shoulder_keymap_value.get(), line_selected == 3);
-                rect.y += text_padding;
-            }
-
-            if (is_line_shown(4))
-            {
-                push_text(progress_label.get());
-                push_text(progress_value.get(), line_selected == 4);
+                    ++rendered_count;
+                    if (rendered_count < static_cast<uint32_t>(num_lines_shown))
+                    {
+                        rect.y += text_padding;
+                    }
+                }
             }
         }
 
@@ -267,7 +263,7 @@ void SettingsView::on_change_shoulder_keymap(int dir)
     );
 }
 
-void SettingsView::on_change_progress()
+void SettingsView::on_change_progress(int)
 {
     token_view_styling.set_progress_reporting(
         get_next_progress_reporting(token_view_styling.get_progress_reporting())
@@ -276,39 +272,22 @@ void SettingsView::on_change_progress()
 
 void SettingsView::on_keypress(SDLKey key)
 {
+    uint32_t num_rows = static_cast<uint32_t>(rows.size());
+
     switch (key) {
         case SW_BTN_UP:
-            line_selected = (line_selected + num_menu_items - 1) % num_menu_items;
+            line_selected = (line_selected + num_rows - 1) % num_rows;
             needs_render = true;
             break;
         case SW_BTN_DOWN:
-            line_selected = (line_selected + 1) % num_menu_items;
+            line_selected = (line_selected + 1) % num_rows;
             needs_render = true;
             break;
         case SW_BTN_LEFT:
         case SW_BTN_RIGHT:
             {
                 int dir = (key == SW_BTN_LEFT) ? -1 : 1;
-                if (line_selected == 0)
-                {
-                    on_change_theme(dir);
-                }
-                else if (line_selected == 1)
-                {
-                    on_change_font_size(dir);
-                }
-                else if (line_selected == 2)
-                {
-                    on_change_font_name(dir);
-                }
-                else if (line_selected == 3)
-                {
-                    on_change_shoulder_keymap(dir);
-                }
-                else
-                {
-                    on_change_progress();
-                }
+                rows[line_selected].on_change(dir);
                 needs_render = true;
             }
             break;
