@@ -144,6 +144,28 @@ void SystemStyling::set_rotation(const std::string &rotation)
     }
 }
 
+void SystemStyling::set_custom_colors(SDL_Color background, SDL_Color main_text)
+{
+    set_custom_theme_colors(background, main_text);
+
+    if (state->color_theme == "custom")
+    {
+        state->loaded_color_theme = ::get_color_theme(state->color_theme);
+    }
+
+    notify_subscribers(ChangeId::CUSTOM_COLORS);
+}
+
+SDL_Color SystemStyling::get_custom_background_color() const
+{
+    return ::get_custom_background_color();
+}
+
+SDL_Color SystemStyling::get_custom_main_text_color() const
+{
+    return ::get_custom_main_text_color();
+}
+
 uint32_t SystemStyling::subscribe_to_changes(std::function<void(ChangeId)> callback)
 {
     uint32_t sub_id = state->next_subscriber_id++;

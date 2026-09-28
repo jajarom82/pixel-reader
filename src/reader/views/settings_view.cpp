@@ -58,6 +58,28 @@ SettingsView::SettingsView(
         [this](int dir) { on_change_rotation(dir); },
         nullptr
     });
+
+    auto push_color_row = [this](std::string label, bool is_background, int channel) {
+        rows.push_back({
+            [label] { return label; },
+            [this, is_background, channel] {
+                SDL_Color color = is_background ?
+                    sys_styling.get_custom_background_color() :
+                    sys_styling.get_custom_main_text_color();
+                Uint8 value = channel == 0 ? color.r : (channel == 1 ? color.g : color.b);
+                return std::to_string(value);
+            },
+            [this, is_background, channel](int dir) { on_change_custom_color(is_background, channel, dir); },
+            nullptr
+        });
+    };
+    push_color_row("BG Red:", true, 0);
+    push_color_row("BG Green:", true, 1);
+    push_color_row("BG Blue:", true, 2);
+    push_color_row("FG Red:", false, 0);
+    push_color_row("FG Green:", false, 1);
+    push_color_row("FG Blue:", false, 2);
+
     rows.push_back({
         [] { return std::string("Progress:"); },
         [this] {
@@ -278,6 +300,24 @@ void SettingsView::on_change_rotation(int dir)
             get_prev_rotation(rotation) :
             get_next_rotation(rotation)
     );
+}
+
+void SettingsView::on_change_custom_color(bool is_background, int channel, int dir)
+{
+    SDL_Color background = sys_styling.get_custom_background_color();
+    SDL_Color main_text = sys_styling.get_custom_main_text_color();
+    SDL_Color &target = is_background ? background : main_text;
+
+    constexpr int step = 8;
+    Uint8 &value = channel == 0 ? target.r : (channel == 1 ? target.g : target.b);
+    value = static_cast<Uint8>((static_cast<int>(value) + dir * step + 256) % 256);
+
+    sys_styling.set_custom_colors(background, main_text);
+
+    if (sys_styling.get_color_theme() != "custom")
+    {
+        sys_styling.set_color_theme("custom");
+    }
 }
 
 void SettingsView::on_change_progress(int)

@@ -3,6 +3,8 @@
 
 #include "./reader/progress_reporting.h"
 
+#include <SDL/SDL_video.h>
+
 #include <optional>
 #include <string>
 
@@ -35,5 +37,11 @@ void settings_set_font_size(StateStore &state_store, uint32_t font_size);
 // Rotation
 std::optional<std::string> settings_get_rotation(const StateStore &state_store);
 void settings_set_rotation(StateStore &state_store, const std::string &rotation);
+
+// Custom theme colors
+std::optional<SDL_Color> settings_get_custom_background_color(const StateStore &state_store);
+void settings_set_custom_background_color(StateStore &state_store, SDL_Color color);
+std::optional<SDL_Color> settings_get_custom_main_text_color(const StateStore &state_store);
+void settings_set_custom_main_text_color(StateStore &state_store, SDL_Color color);
 
 #endif

@@ -19,6 +19,7 @@ public:
         COLOR_THEME,
         SHOULDER_KEYMAP,
         ROTATION,
+        CUSTOM_COLORS,
     };
 
 private:
@@ -58,6 +59,11 @@ public:
     // rotation
     const std::string &get_rotation() const;
     void set_rotation(const std::string &rotation);
+
+    // custom theme colors (only visually active while color theme == "custom")
+    void set_custom_colors(SDL_Color background, SDL_Color main_text);
+    SDL_Color get_custom_background_color() const;
+    SDL_Color get_custom_main_text_color() const;
 
     // Subscribe to any changes
     uint32_t subscribe_to_changes(std::function<void(ChangeId)> callback);

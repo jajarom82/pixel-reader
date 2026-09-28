@@ -236,6 +236,13 @@ int main(int argc, char **argv)
     };
     sync_rotated_buffer();
 
+    // Custom theme colors must be populated before SystemStyling is
+    // constructed, in case the persisted color theme choice is "custom".
+    set_custom_theme_colors(
+        settings_get_custom_background_color(state_store).value_or(get_custom_background_color()),
+        settings_get_custom_main_text_color(state_store).value_or(get_custom_main_text_color())
+    );
+
     // Preload & check fonts
     auto init_font_name = get_valid_font_name(settings_get_font_name(state_store).value_or(DEFAULT_FONT_NAME));
     auto init_font_size = bound(settings_get_font_size(state_store).value_or(DEFAULT_FONT_SIZE), MIN_FONT_SIZE, MAX_FONT_SIZE);
@@ -263,6 +270,8 @@ int main(int argc, char **argv)
         settings_set_font_size(state_store, sys_styling.get_font_size());
         settings_set_shoulder_keymap(state_store, sys_styling.get_shoulder_keymap());
         settings_set_rotation(state_store, sys_styling.get_rotation());
+        settings_set_custom_background_color(state_store, sys_styling.get_custom_background_color());
+        settings_set_custom_main_text_color(state_store, sys_styling.get_custom_main_text_color());
 
         if (change_id == SystemStyling::ChangeId::ROTATION)
         {
