@@ -527,6 +527,30 @@ int main(int argc, char **argv)
         if (rotated_buffer)
         {
             rotate_blit(screen, rotated_buffer, get_rotation_degrees(rotation));
+
+            // TEMPORARY DIAGNOSTIC: read raw pixel values back out of
+            // rotated_buffer at its four corners, in hex, right after the
+            // rotate - proves or disproves whether the rotation actually
+            // wrote new content into this buffer, independent of anything
+            // that could go wrong afterward (the blit to `video`, the
+            // display driver, or a human's read of a photo of the screen).
+            if (last_logged_present_rotation == rotation && present_log_timer.elapsed_ms() < 50)
+            {
+                SDL_LockSurface(rotated_buffer);
+                auto pixel_at = [&](int x, int y) -> uint32_t {
+                    auto *row = reinterpret_cast<uint8_t *>(rotated_buffer->pixels) + y * rotated_buffer->pitch;
+                    return reinterpret_cast<uint32_t *>(row)[x];
+                };
+                std::cerr << "rotated_buffer corners after rotate_blit (degrees=" << get_rotation_degrees(rotation) << "): "
+                    << "TL=0x" << std::hex << pixel_at(0, 0)
+                    << " TR=0x" << pixel_at(rotated_buffer->w - 1, 0)
+                    << " BL=0x" << pixel_at(0, rotated_buffer->h - 1)
+                    << " BR=0x" << pixel_at(rotated_buffer->w - 1, rotated_buffer->h - 1)
+                    << std::dec << " (expect TL red-ish 0x..0000ff or similar, BR green-ish, for 0/dimensions unrotated appearance; swapped if truly rotated)"
+                    << std::endl;
+                SDL_UnlockSurface(rotated_buffer);
+            }
+
             SDL_BlitSurface(rotated_buffer, NULL, video, NULL);
         }
         else
