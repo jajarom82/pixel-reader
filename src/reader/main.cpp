@@ -15,6 +15,7 @@
 #include "./views/settings_view.h"
 #include "./views/token_view/token_view_styling.h"
 #include "filetypes/open_doc.h"
+#include "sys/battery.h"
 #include "sys/keymap.h"
 #include "sys/screen.h"
 #include "util/fps_limiter.h"
@@ -252,8 +253,24 @@ int main(int argc, char **argv)
     SCREEN_WIDTH = is_rotation_swapped(rotation) ? physical_height : physical_width;
     SCREEN_HEIGHT = is_rotation_swapped(rotation) ? physical_width : physical_height;
 
-    std::cout << "Physical screen size: " << physical_width << "x" << physical_height << std::endl;
-    std::cout << "Logical screen size: " << SCREEN_WIDTH << "x" << SCREEN_HEIGHT << std::endl;
+    // launch.sh redirects only stderr to log.txt (`./reader 2>log.txt`), not
+    // stdout - anything meant to be checkable after a normal launch from the
+    // device's menu (no terminal attached) must go to std::cerr, not
+    // std::cout, or it goes nowhere anyone can read.
+    std::cerr << "Physical screen size: " << physical_width << "x" << physical_height << std::endl;
+    std::cerr << "Logical screen size: " << SCREEN_WIDTH << "x" << SCREEN_HEIGHT << std::endl;
+
+    {
+        auto battery = get_battery_percent();
+        if (battery)
+        {
+            std::cerr << "Battery probe: " << *battery << "%" << std::endl;
+        }
+        else
+        {
+            std::cerr << "Battery probe: unavailable (check /tmp/battery on-device)" << std::endl;
+        }
+    }
 
     // Surfaces
     SDL_Surface *video = SDL_SetVideoMode(physical_width, physical_height, 32, SDL_HWSURFACE);
@@ -345,7 +362,7 @@ int main(int argc, char **argv)
 
             sync_rotated_buffer();
 
-            std::cout << "Rotation changed to " << rotation
+            std::cerr << "Rotation changed to " << rotation
                 << " (" << get_rotation_degrees(rotation) << " degrees), logical "
                 << SCREEN_WIDTH << "x" << SCREEN_HEIGHT
                 << ", rotated_buffer=" << (rotated_buffer ? "allocated" : "null")
