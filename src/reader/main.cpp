@@ -31,7 +31,9 @@
 #include <libxml/parser.h>
 #include <SDL/SDL.h>
 
+#include <cstdint>
 #include <csignal>
+#include <fstream>
 #include <iostream>
 
 namespace
@@ -171,6 +173,39 @@ public:
     }
 };
 
+// Temporary broader diagnostic: /tmp/battery (the path get_battery_percent()
+// uses) is confirmed absent on at least one real device/firmware. Try a
+// handful of other conventions used by battery-reporting daemons on similar
+// handhelds and log whatever each one contains, so the right path can be
+// identified without another guess-then-reflash round. Read-only, so this
+// is safe to run regardless of which of these exist.
+void probe_battery_candidates()
+{
+    static const char *candidates[] = {
+        "/tmp/battery",
+        "/sys/class/power_supply/battery/capacity",
+        "/sys/class/power_supply/axp2202-battery/capacity",
+        "/sys/class/power_supply/axp223-battery/capacity",
+        "/sys/class/power_supply/bq27520/capacity",
+        "/sys/class/power_supply/battery/uevent",
+        "/proc/pmu/battery",
+    };
+
+    for (const char *path : candidates)
+    {
+        std::ifstream file(path);
+        if (!file)
+        {
+            std::cerr << "Battery candidate " << path << ": not found" << std::endl;
+            continue;
+        }
+
+        std::string content;
+        std::getline(file, content);
+        std::cerr << "Battery candidate " << path << ": \"" << content << "\"" << std::endl;
+    }
+}
+
 // Portable substitute for SDL_WaitEventTimeout, which isn't declared in
 // every SDL1.2 build (notably absent from the Miyoo Mini cross-compile
 // toolchain's headers). Polls in a short sleep loop instead of a single
@@ -270,6 +305,7 @@ int main(int argc, char **argv)
         {
             std::cerr << "Battery probe: unavailable (check /tmp/battery on-device)" << std::endl;
         }
+        probe_battery_candidates();
     }
 
     // Surfaces
@@ -435,6 +471,22 @@ int main(int argc, char **argv)
     // Present the logical `screen` surface to the physical `video` surface,
     // rotating through `rotated_buffer` first when a rotation is active.
     auto present = [&]() {
+        // Diagnostic: logged once per rotation value (not every frame) so
+        // there is an unambiguous record of which branch actually ran,
+        // instead of inferring it indirectly from SDL's own debug output.
+        static std::string last_logged_present_rotation = "<unset>";
+        if (last_logged_present_rotation != rotation)
+        {
+            last_logged_present_rotation = rotation;
+            std::cerr << "present(): rotation=" << rotation
+                << " using " << (rotated_buffer ? "rotated_buffer" : "screen directly")
+                << (rotated_buffer ? (
+                    " (" + std::to_string(rotated_buffer->w) + "x" + std::to_string(rotated_buffer->h) +
+                    ", ptr=" + std::to_string(reinterpret_cast<uintptr_t>(rotated_buffer)) + ")"
+                ) : std::string())
+                << std::endl;
+        }
+
         if (rotated_buffer)
         {
             rotate_blit(screen, rotated_buffer, get_rotation_degrees(rotation));
