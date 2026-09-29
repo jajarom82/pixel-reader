@@ -288,24 +288,6 @@ int main(int argc, char **argv)
         return degrees == 90 || degrees == 270;
     };
 
-    // TEMPORARY WORKAROUND: on-device pixel readback (comparing rotated_buffer's
-    // content right after rotate_blit against video's content right after the
-    // final blit+flip) proved that whatever ends up in `video` gets an
-    // additional, constant 180 degree flip applied somewhere below this
-    // application - the same video memory bytes were observed for the 0 and
-    // 180 degree settings, even though rotated_buffer itself correctly held
-    // different, properly-rotated content for each. This is presumably a
-    // driver/panel-level compensation for how the physical display is
-    // mounted, applied unconditionally regardless of what we ask for.
-    // Compensate by requesting the opposite of whatever was asked: this
-    // makes the "0" setting apply a 180 rotation in software (canceling the
-    // hidden flip back to a normal-looking display) and the "180" setting
-    // apply no rotation at all (relying entirely on the hidden flip). 90 and
-    // 270 swap with each other for the same reason.
-    auto get_compensated_rotation_degrees = [](const std::string &r) {
-        return (get_rotation_degrees(r) + 180) % 360;
-    };
-
     SCREEN_WIDTH = is_rotation_swapped(rotation) ? physical_height : physical_width;
     SCREEN_HEIGHT = is_rotation_swapped(rotation) ? physical_width : physical_height;
 
@@ -527,7 +509,7 @@ int main(int argc, char **argv)
         if (rotated_buffer)
         {
             Timer rotate_blit_timer;
-            int degrees_to_apply = get_compensated_rotation_degrees(rotation);
+            int degrees_to_apply = get_rotation_degrees(rotation);
             if (degrees_to_apply == 0)
             {
                 // rotate_blit(_, _, 0) is a deliberate no-op (relies on the
