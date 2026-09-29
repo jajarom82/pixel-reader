@@ -77,26 +77,57 @@ void rotate_blit(SDL_Surface *src, SDL_Surface *dst, int degrees)
         SDL_Surface *rotated = rotozoomSurface(src, 180.0, 1.0, 0);
         if (rotated)
         {
-            if (rotated->w != dst->w || rotated->h != dst->h)
+            // rotozoomSurface's bounding-box math computes sin(180 degrees)
+            // as a tiny non-zero value (a floating point artifact - it is
+            // never exactly zero), which inflates a ceil() call in its size
+            // calculation by one pixel per side, e.g. 642x482 instead of
+            // 640x480. Confirmed by tracing its fixed-point transform math:
+            // when the output is larger than the input, the padding this
+            // introduces lands entirely along the top and left edges of the
+            // output, and those padding rows/columns are never written by
+            // the transform at all (left as whatever the freshly allocated
+            // surface already contained). The actual rotated image is the
+            // bottom-right-aligned dst->w x dst->h region, not the
+            // top-left-aligned one - confirmed on-device by reading back
+            // raw corner pixels: the bottom-right corner (the only one
+            // outside the unwritten padding) held the mathematically
+            // correct, correctly-rotated value, while the other three sat
+            // inside the unwritten padding and read back stale/undefined
+            // data left over from a previous frame's allocation, which is
+            // what made the whole rotation look like it silently had no
+            // effect.
+            int offset_x = rotated->w - dst->w;
+            int offset_y = rotated->h - dst->h;
+            if (offset_x >= 0 && offset_y >= 0)
             {
-                // rotozoomSurface's bounding-box math for a 180 degree turn
-                // can be off by a pixel or two on some libm/platform
-                // combinations (trig rounding), even though the rotation
-                // itself is correct. Blit the overlapping region instead of
-                // discarding the whole result over a near-miss - losing a
-                // 1px border beats silently falling back to the unrotated-
-                // looking manual path below.
-                std::cerr << "rotozoomSurface(180) returned unexpected size "
-                    << rotated->w << "x" << rotated->h << " (expected "
-                    << dst->w << "x" << dst->h << "), blitting clipped"
-                    << std::endl;
+                if (offset_x != 0 || offset_y != 0)
+                {
+                    std::cerr << "rotozoomSurface(180) returned padded size "
+                        << rotated->w << "x" << rotated->h << " (expected "
+                        << dst->w << "x" << dst->h << "), cropping to bottom-right region"
+                        << std::endl;
+                }
+                SDL_Rect src_rect = {
+                    static_cast<Sint16>(offset_x),
+                    static_cast<Sint16>(offset_y),
+                    static_cast<Uint16>(dst->w),
+                    static_cast<Uint16>(dst->h)
+                };
+                SDL_BlitSurface(rotated, &src_rect, dst, NULL);
+                SDL_FreeSurface(rotated);
+                return;
             }
-            SDL_BlitSurface(rotated, NULL, dst, NULL);
-            SDL_FreeSurface(rotated);
-            return;
-        }
 
-        std::cerr << "rotozoomSurface(180) failed, falling back to manual rotation" << std::endl;
+            std::cerr << "rotozoomSurface(180) returned smaller-than-expected size "
+                << rotated->w << "x" << rotated->h << " (expected "
+                << dst->w << "x" << dst->h << "), falling back to manual rotation"
+                << std::endl;
+            SDL_FreeSurface(rotated);
+        }
+        else
+        {
+            std::cerr << "rotozoomSurface(180) failed, falling back to manual rotation" << std::endl;
+        }
         // fall through to the manual rotation below
     }
 
