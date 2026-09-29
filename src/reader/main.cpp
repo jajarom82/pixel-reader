@@ -16,7 +16,6 @@
 #include "./views/token_view/token_view_styling.h"
 #include "filetypes/open_doc.h"
 #include "sys/battery.h"
-#include "sys/filesystem.h"
 #include "sys/keymap.h"
 #include "sys/screen.h"
 #include "util/fps_limiter.h"
@@ -34,9 +33,7 @@
 
 #include <cstdint>
 #include <csignal>
-#include <fstream>
 #include <iostream>
-#include <typeinfo>
 
 namespace
 {
@@ -175,40 +172,6 @@ public:
     }
 };
 
-// Temporary broader diagnostic: /tmp/battery (the path get_battery_percent()
-// uses) is confirmed absent on at least one real device/firmware. Try a
-// handful of other conventions used by battery-reporting daemons on similar
-// handhelds and log whatever each one contains, so the right path can be
-// identified without another guess-then-reflash round. Read-only, so this
-// is safe to run regardless of which of these exist.
-void probe_battery_candidates()
-{
-    static const char *candidates[] = {
-        "/tmp/.axp_result",
-        "/tmp/battery",
-        "/sys/class/power_supply/battery/capacity",
-        "/sys/class/power_supply/axp2202-battery/capacity",
-        "/sys/class/power_supply/axp223-battery/capacity",
-        "/sys/class/power_supply/bq27520/capacity",
-        "/sys/class/power_supply/battery/uevent",
-        "/proc/pmu/battery",
-    };
-
-    for (const char *path : candidates)
-    {
-        std::ifstream file(path);
-        if (!file)
-        {
-            std::cerr << "Battery candidate " << path << ": not found" << std::endl;
-            continue;
-        }
-
-        std::string content;
-        std::getline(file, content);
-        std::cerr << "Battery candidate " << path << ": \"" << content << "\"" << std::endl;
-    }
-}
-
 // Portable substitute for SDL_WaitEventTimeout, which isn't declared in
 // every SDL1.2 build (notably absent from the Miyoo Mini cross-compile
 // toolchain's headers). Polls in a short sleep loop instead of a single
@@ -297,30 +260,6 @@ int main(int argc, char **argv)
     // std::cout, or it goes nowhere anyone can read.
     std::cerr << "Physical screen size: " << physical_width << "x" << physical_height << std::endl;
     std::cerr << "Logical screen size: " << SCREEN_WIDTH << "x" << SCREEN_HEIGHT << std::endl;
-
-    {
-        auto battery = get_battery_percent();
-        if (battery)
-        {
-            std::cerr << "Battery probe: " << *battery << "%" << std::endl;
-        }
-        else
-        {
-            std::cerr << "Battery probe: unavailable (check /tmp/.axp_result and /tmp/battery on-device)" << std::endl;
-        }
-        probe_battery_candidates();
-
-        std::cerr << "Listing /sys/class/power_supply:" << std::endl;
-        auto power_supply_entries = directory_listing("/sys/class/power_supply");
-        if (power_supply_entries.empty())
-        {
-            std::cerr << "  (empty or does not exist)" << std::endl;
-        }
-        for (const auto &entry : power_supply_entries)
-        {
-            std::cerr << "  " << (entry.is_dir ? "D " : "F ") << entry.name << std::endl;
-        }
-    }
 
     // Surfaces
     SDL_Surface *video = SDL_SetVideoMode(physical_width, physical_height, 32, SDL_HWSURFACE);
@@ -464,144 +403,30 @@ int main(int argc, char **argv)
     const uint32_t avg_loop_time = 1000 / TARGET_FPS;
 
     // Present the logical `screen` surface to the physical `video` surface,
-    // rotating through `rotated_buffer` first when a rotation is active.
-    Timer present_log_timer;
-    std::string last_logged_present_rotation = "<unset>";
+    // always by way of `rotated_buffer` - a straight copy for a 0 degree
+    // result, otherwise rotated first. `screen` (a hardware surface) must
+    // never be blitted directly to `video`: on this device that specific
+    // combination silently applies an unwanted 180 degree flip that a
+    // software-surface source never triggers.
+    //
+    // Whatever rotation the user asked for is also applied 180 degrees
+    // opposite of what its label says (0 actually rotates 180, 180 applies
+    // no rotation, 90/270 swap) - confirmed on real hardware to be needed
+    // for the display to end up right side up, most likely because the
+    // physical panel itself is mounted rotated relative to the
+    // framebuffer's natural orientation.
     auto present = [&]() {
-        // Diagnostic: logged whenever the rotation value changes, and
-        // periodically the rest of the time (every 2s) rather than only
-        // once - a change alone can't confirm what's still happening
-        // moments later, e.g. after closing a modal back to the reader.
-        bool should_log_this_frame = last_logged_present_rotation != rotation || present_log_timer.elapsed_ms() >= 2000;
-        if (should_log_this_frame)
+        int degrees_to_apply = (get_rotation_degrees(rotation) + 180) % 360;
+        if (degrees_to_apply == 0)
         {
-            last_logged_present_rotation = rotation;
-            present_log_timer.reset();
-            std::cerr << "present(): rotation=" << rotation
-                << " using " << (rotated_buffer ? "rotated_buffer" : "screen directly")
-                << (rotated_buffer ? (
-                    " (" + std::to_string(rotated_buffer->w) + "x" + std::to_string(rotated_buffer->h) +
-                    ", ptr=" + std::to_string(reinterpret_cast<uintptr_t>(rotated_buffer)) + ")"
-                ) : std::string())
-                << ", top_view=" << (view_stack.top_view() ? typeid(*view_stack.top_view()).name() : "none")
-                << std::endl;
+            SDL_BlitSurface(screen, NULL, rotated_buffer, NULL);
         }
-
-        // TEMPORARY VISUAL DIAGNOSTIC for the rotation investigation: a red
-        // square at the logical top-left corner, green at the logical
-        // bottom-right. If rotation is genuinely applied, these should
-        // visibly swap/move corners - removes any need to judge whether
-        // text "looks" upside down. Safe to remove once this is resolved.
+        else
         {
-            constexpr int marker_size = 24;
-            SDL_Rect top_left_marker = {0, 0, marker_size, marker_size};
-            SDL_FillRect(screen, &top_left_marker, SDL_MapRGB(screen->format, 255, 0, 0));
-
-            SDL_Rect bottom_right_marker = {
-                static_cast<Sint16>(SCREEN_WIDTH - marker_size),
-                static_cast<Sint16>(SCREEN_HEIGHT - marker_size),
-                static_cast<Uint16>(marker_size),
-                static_cast<Uint16>(marker_size)
-            };
-            SDL_FillRect(screen, &bottom_right_marker, SDL_MapRGB(screen->format, 0, 255, 0));
+            rotate_blit(screen, rotated_buffer, degrees_to_apply);
         }
-
-        if (rotated_buffer)
-        {
-            Timer rotate_blit_timer;
-            // Confirmed on-device: with screen no longer ever blitted
-            // directly to video (previous fix), the remaining rotation
-            // pipeline is internally consistent but inverted end to end -
-            // the "0" setting displays upside down and "180" displays
-            // right side up. Whatever the exact cause (most likely the
-            // physical panel is mounted rotated 180 degrees relative to
-            // the framebuffer's natural orientation), the fix is the same
-            // additive 180 degree offset tried earlier, just now applied
-            // on top of a mechanism that is otherwise actually correct.
-            int degrees_to_apply = (get_rotation_degrees(rotation) + 180) % 360;
-            if (degrees_to_apply == 0)
-            {
-                // rotate_blit(_, _, 0) is a deliberate no-op (relies on the
-                // caller using `screen` directly in that case) - but this
-                // path must never blit `screen` (a hardware surface)
-                // straight to `video`, so do the equivalent plain copy into
-                // the scratch buffer ourselves instead.
-                SDL_BlitSurface(screen, NULL, rotated_buffer, NULL);
-            }
-            else
-            {
-                rotate_blit(screen, rotated_buffer, degrees_to_apply);
-            }
-            if (should_log_this_frame)
-            {
-                std::cerr << "rotate_blit(degrees=" << degrees_to_apply
-                    << ") took " << rotate_blit_timer.elapsed_ms() << "ms" << std::endl;
-            }
-
-            // TEMPORARY DIAGNOSTIC: read raw pixel values back out of
-            // rotated_buffer at its four corners, in hex, right after the
-            // rotate - proves or disproves whether the rotation actually
-            // wrote new content into this buffer, independent of anything
-            // that could go wrong afterward (the blit to `video`, the
-            // display driver, or a human's read of a photo of the screen).
-            //
-            // Gated on the same should_log_this_frame flag as the block
-            // above (not a fixed elapsed-time window) - rotozoomSurface's
-            // per-pixel floating point transform is measurably slower than
-            // the hand-rolled 90/270 paths on this ARM core, so a fixed
-            // "logged within the last 50ms" check could already be false
-            // by the time rotate_blit() returns for the 180 case, which is
-            // exactly why this never printed for degrees=180 last round.
-            if (should_log_this_frame)
-            {
-                SDL_LockSurface(rotated_buffer);
-                auto pixel_at = [&](int x, int y) -> uint32_t {
-                    auto *row = reinterpret_cast<uint8_t *>(rotated_buffer->pixels) + y * rotated_buffer->pitch;
-                    return reinterpret_cast<uint32_t *>(row)[x];
-                };
-                std::cerr << "rotated_buffer corners after rotate_blit (degrees=" << degrees_to_apply << "): "
-                    << "TL=0x" << std::hex << pixel_at(0, 0)
-                    << " TR=0x" << pixel_at(rotated_buffer->w - 1, 0)
-                    << " BL=0x" << pixel_at(0, rotated_buffer->h - 1)
-                    << " BR=0x" << pixel_at(rotated_buffer->w - 1, rotated_buffer->h - 1)
-                    << std::dec << " (expect TL red-ish 0x..0000ff or similar, BR green-ish, for 0/dimensions unrotated appearance; swapped if truly rotated)"
-                    << std::endl;
-                SDL_UnlockSurface(rotated_buffer);
-            }
-
-            SDL_BlitSurface(rotated_buffer, NULL, video, NULL);
-        }
+        SDL_BlitSurface(rotated_buffer, NULL, video, NULL);
         SDL_Flip(video);
-
-        // TEMPORARY DIAGNOSTIC: the previous readback proved rotated_buffer
-        // itself holds the correctly rotated pixels right after rotate_blit,
-        // but the physical display was reported to still show the
-        // unrotated layout regardless of setting - so the same check is
-        // needed one step further downstream, on `video` itself, right
-        // after the blit-to-video and flip. If this also reads correctly
-        // but the physical screen still does not reflect it, the gap is
-        // below the app entirely (driver/hardware), not in this code.
-        if (should_log_this_frame)
-        {
-            if (SDL_LockSurface(video) == 0)
-            {
-                auto pixel_at = [&](int x, int y) -> uint32_t {
-                    auto *row = reinterpret_cast<uint8_t *>(video->pixels) + y * video->pitch;
-                    return reinterpret_cast<uint32_t *>(row)[x];
-                };
-                std::cerr << "video corners after blit+flip (rotation=" << rotation << "): "
-                    << "TL=0x" << std::hex << pixel_at(0, 0)
-                    << " TR=0x" << pixel_at(video->w - 1, 0)
-                    << " BL=0x" << pixel_at(0, video->h - 1)
-                    << " BR=0x" << pixel_at(video->w - 1, video->h - 1)
-                    << std::dec << std::endl;
-                SDL_UnlockSurface(video);
-            }
-            else
-            {
-                std::cerr << "video corners: SDL_LockSurface(video) failed" << std::endl;
-            }
-        }
     };
 
     // Battery indicator, drawn as a small overlay directly onto `screen`
