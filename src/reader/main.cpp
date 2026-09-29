@@ -431,7 +431,10 @@ int main(int argc, char **argv)
 
     // Battery indicator, drawn as a small overlay directly onto `screen`
     // (whatever it currently holds) so it can refresh on its own poll
-    // cadence without requiring a full view re-render.
+    // cadence without requiring a full view re-render. Framed as a small
+    // battery-shaped icon (bordered body + terminal nub) with the
+    // percentage centered inside and a thin proportional charge gauge
+    // along the bottom edge, rather than bare text.
     BatteryStatus battery_status;
     auto draw_battery_overlay = [&]() {
         auto percent = battery_status.get_percent();
@@ -443,23 +446,81 @@ int main(int argc, char **argv)
         TTF_Font *font = cached_load_font(SYSTEM_FONT, sys_styling.get_font_size());
         const auto &theme = sys_styling.get_loaded_color_theme();
 
-        // Clear a zone sized for the widest case ("100%") and right-align
-        // the actual text within it, so a shrinking percentage (e.g.
-        // 100% -> 99%) can't leave stale digits from the wider old text.
-        int zone_w = 0, zone_h = 0;
-        TTF_SizeUTF8(font, "100%", &zone_w, &zone_h);
+        const int margin = 5;
+        const int h_pad = 4;
+        const int border = 1;
+        const int gauge_h = 3;
+        const int gauge_gap = 2;
+        const int nub_w = 3;
+        const int nub_gap = 1;
+
+        // Sized for the widest case ("100%") so a shrinking percentage
+        // (e.g. 100% -> 99%) can't leave stale digits from a wider
+        // previous frame.
+        int text_w = 0, text_h = 0;
+        TTF_SizeUTF8(font, "100%", &text_w, &text_h);
+
+        int body_w = text_w + h_pad * 2;
+        int body_h = text_h + gauge_gap + gauge_h;
+        int total_w = body_w + nub_gap + nub_w;
 
         SDL_Rect zone_rect = {
-            static_cast<Sint16>(SCREEN_WIDTH - zone_w - 5),
-            5,
-            static_cast<Uint16>(zone_w),
-            static_cast<Uint16>(zone_h)
+            static_cast<Sint16>(SCREEN_WIDTH - total_w - margin),
+            margin,
+            static_cast<Uint16>(total_w),
+            static_cast<Uint16>(body_h)
         };
         SDL_FillRect(
             screen,
             &zone_rect,
             SDL_MapRGB(screen->format, theme.background.r, theme.background.g, theme.background.b)
         );
+
+        auto to_mapped = [&](const SDL_Color &c) {
+            return SDL_MapRGB(screen->format, c.r, c.g, c.b);
+        };
+
+        SDL_Rect body_rect = {
+            zone_rect.x, zone_rect.y,
+            static_cast<Uint16>(body_w), static_cast<Uint16>(body_h)
+        };
+        SDL_FillRect(screen, &body_rect, to_mapped(theme.secondary_text));
+
+        SDL_Rect body_inner_rect = {
+            static_cast<Sint16>(body_rect.x + border),
+            static_cast<Sint16>(body_rect.y + border),
+            static_cast<Uint16>(body_w - border * 2),
+            static_cast<Uint16>(body_h - border * 2)
+        };
+        SDL_FillRect(screen, &body_inner_rect, to_mapped(theme.background));
+
+        SDL_Rect nub_rect = {
+            static_cast<Sint16>(body_rect.x + body_w + nub_gap),
+            static_cast<Sint16>(body_rect.y + body_h / 4),
+            static_cast<Uint16>(nub_w),
+            static_cast<Uint16>(body_h / 2)
+        };
+        SDL_FillRect(screen, &nub_rect, to_mapped(theme.secondary_text));
+
+        // Charge gauge along the bottom edge, switching to a fixed warning
+        // color when low regardless of theme - the same convention as most
+        // OS battery indicators, where legibility of "running low" matters
+        // more than matching the current color scheme.
+        int gauge_max_w = body_inner_rect.w - 2;
+        int gauge_w = gauge_max_w * bound(*percent, 0, 100) / 100;
+        if (gauge_w > 0)
+        {
+            bool low_battery = *percent <= 15;
+            SDL_Color gauge_color = low_battery ? SDL_Color{230, 70, 70, 0} : theme.highlight_background;
+
+            SDL_Rect gauge_rect = {
+                static_cast<Sint16>(body_inner_rect.x + 1),
+                static_cast<Sint16>(body_inner_rect.y + body_inner_rect.h - gauge_h - 1),
+                static_cast<Uint16>(gauge_w),
+                static_cast<Uint16>(gauge_h)
+            };
+            SDL_FillRect(screen, &gauge_rect, to_mapped(gauge_color));
+        }
 
         char text[16];
         snprintf(text, sizeof(text), "%d%%", *percent);
@@ -471,8 +532,8 @@ int main(int argc, char **argv)
         }
 
         SDL_Rect dest_rect = {
-            static_cast<Sint16>(zone_rect.x + zone_w - surface->w),
-            5,
+            static_cast<Sint16>(body_inner_rect.x + (body_inner_rect.w - surface->w) / 2),
+            body_inner_rect.y,
             0, 0
         };
         SDL_BlitSurface(surface.get(), NULL, screen, &dest_rect);
