@@ -1,6 +1,10 @@
 #include "./rotate_blit.h"
 
+#include "extern/rotozoom/SDL_rotozoom.h"
+
 #include <SDL/SDL.h>
+
+#include <iostream>
 
 namespace
 {
@@ -59,6 +63,38 @@ void rotate_blit(SDL_Surface *src, SDL_Surface *dst, int degrees)
     if (degrees == 0)
     {
         return;
+    }
+
+    if (degrees == 180)
+    {
+        // Prefer the vendored, independently-maintained rotozoom for 180 -
+        // it is already proven correct on real Miyoo Mini hardware (used
+        // for cover thumbnails and in-book images), unlike the hand-rolled
+        // rotate_180 below, which was reported to have no visible effect
+        // on at least one real device despite passing automated tests on
+        // desktop. Falls back to the manual version if this ever returns
+        // something unexpected.
+        SDL_Surface *rotated = rotozoomSurface(src, 180.0, 1.0, 0);
+        if (rotated && rotated->w == dst->w && rotated->h == dst->h)
+        {
+            SDL_BlitSurface(rotated, NULL, dst, NULL);
+            SDL_FreeSurface(rotated);
+            return;
+        }
+
+        if (rotated)
+        {
+            std::cerr << "rotozoomSurface(180) returned unexpected size "
+                << rotated->w << "x" << rotated->h << " (expected "
+                << dst->w << "x" << dst->h << "), falling back to manual rotation"
+                << std::endl;
+            SDL_FreeSurface(rotated);
+        }
+        else
+        {
+            std::cerr << "rotozoomSurface(180) failed, falling back to manual rotation" << std::endl;
+        }
+        // fall through to the manual rotation below
     }
 
     SDL_LockSurface(src);
