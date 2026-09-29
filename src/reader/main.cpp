@@ -11,6 +11,7 @@
 #include "./views/file_selector.h"
 #include "./views/gallery_view.h"
 #include "./views/reader_bootstrap_view.h"
+#include "./views/reader_view.h"
 #include "./views/settings_view.h"
 #include "./views/token_view/token_view_styling.h"
 #include "filetypes/open_doc.h"
@@ -260,17 +261,33 @@ int main(int argc, char **argv)
     set_render_surface_format(screen->format);
 
     // Scratch buffer content is rotated into before reaching the physical
-    // panel. Only allocated while a non-zero rotation is active.
+    // panel. Only allocated while a non-zero rotation is active. Its size
+    // is always physical_width x physical_height regardless of *which*
+    // non-zero rotation is active (90/180/270 all rotate onto the same
+    // physical panel shape) - avoid pointlessly freeing/reallocating it
+    // when just switching between those.
     SDL_Surface *rotated_buffer = nullptr;
     auto sync_rotated_buffer = [&]() {
+        bool need_buffer = get_rotation_degrees(rotation) != 0;
+
+        if (need_buffer && rotated_buffer)
+        {
+            return; // already correctly sized, nothing to do
+        }
+
         if (rotated_buffer)
         {
             SDL_FreeSurface(rotated_buffer);
             rotated_buffer = nullptr;
         }
-        if (get_rotation_degrees(rotation) != 0)
+
+        if (need_buffer)
         {
             rotated_buffer = SDL_CreateRGBSurface(SDL_SWSURFACE, physical_width, physical_height, 32, 0, 0, 0, 0);
+            if (!rotated_buffer)
+            {
+                std::cerr << "Failed to allocate rotation buffer" << std::endl;
+            }
         }
     };
     sync_rotated_buffer();
@@ -327,6 +344,12 @@ int main(int argc, char **argv)
             set_render_surface_format(screen->format);
 
             sync_rotated_buffer();
+
+            std::cout << "Rotation changed to " << rotation
+                << " (" << get_rotation_degrees(rotation) << " degrees), logical "
+                << SCREEN_WIDTH << "x" << SCREEN_HEIGHT
+                << ", rotated_buffer=" << (rotated_buffer ? "allocated" : "null")
+                << std::endl;
         }
     });
 
@@ -555,12 +578,21 @@ int main(int argc, char **argv)
             view_rendered = view_stack.render(screen, force_render);
         }
 
-        if (view_rendered || battery_changed)
+        // Hidden while actively reading - a persistent corner indicator
+        // competes with the page for attention exactly where it matters
+        // least to have it. Still shown while browsing/in settings/TOC.
+        bool show_battery = dynamic_cast<ReaderView *>(view_stack.top_view().get()) == nullptr;
+        bool relevant_battery_change = battery_changed && show_battery;
+
+        if (view_rendered || relevant_battery_change)
         {
             // Battery-only updates don't need (and shouldn't force) a full
             // view re-render: `screen` already holds the last frame's
             // contents, so just redraw the indicator on top of it.
-            draw_battery_overlay();
+            if (show_battery)
+            {
+                draw_battery_overlay();
+            }
             present();
         }
 
