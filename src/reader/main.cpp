@@ -573,6 +573,36 @@ int main(int argc, char **argv)
             SDL_BlitSurface(screen, NULL, video, NULL);
         }
         SDL_Flip(video);
+
+        // TEMPORARY DIAGNOSTIC: the previous readback proved rotated_buffer
+        // itself holds the correctly rotated pixels right after rotate_blit,
+        // but the physical display was reported to still show the
+        // unrotated layout regardless of setting - so the same check is
+        // needed one step further downstream, on `video` itself, right
+        // after the blit-to-video and flip. If this also reads correctly
+        // but the physical screen still does not reflect it, the gap is
+        // below the app entirely (driver/hardware), not in this code.
+        if (should_log_this_frame)
+        {
+            if (SDL_LockSurface(video) == 0)
+            {
+                auto pixel_at = [&](int x, int y) -> uint32_t {
+                    auto *row = reinterpret_cast<uint8_t *>(video->pixels) + y * video->pitch;
+                    return reinterpret_cast<uint32_t *>(row)[x];
+                };
+                std::cerr << "video corners after blit+flip (rotation=" << rotation << "): "
+                    << "TL=0x" << std::hex << pixel_at(0, 0)
+                    << " TR=0x" << pixel_at(video->w - 1, 0)
+                    << " BL=0x" << pixel_at(0, video->h - 1)
+                    << " BR=0x" << pixel_at(video->w - 1, video->h - 1)
+                    << std::dec << std::endl;
+                SDL_UnlockSurface(video);
+            }
+            else
+            {
+                std::cerr << "video corners: SDL_LockSurface(video) failed" << std::endl;
+            }
+        }
     };
 
     // Battery indicator, drawn as a small overlay directly onto `screen`
