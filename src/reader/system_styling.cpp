@@ -4,7 +4,7 @@
 #include "reader/color_theme_def.h"
 #include "util/sdl_font_cache.h"
 
-#include <unordered_map>
+#include <map>
 
 struct SystemStylingState {
     std::string font_name;
@@ -18,7 +18,14 @@ struct SystemStylingState {
     std::string rotation;
 
     uint32_t next_subscriber_id = 1;
-    std::unordered_map<uint32_t, std::function<void(SystemStyling::ChangeId)>> subscribers;
+    // Ordered (not unordered_map) so notify_subscribers runs callbacks in
+    // subscription order - main.cpp subscribes at startup and depends on
+    // running before any per-book view subscribes later (e.g. it must
+    // resize SCREEN_WIDTH/HEIGHT for a rotation change before TokenView
+    // re-wraps text against those globals). An unordered_map's iteration
+    // order is unspecified and was observed to differ between desktop
+    // and the ARM cross-compiled build, causing stale-width re-wraps.
+    std::map<uint32_t, std::function<void(SystemStyling::ChangeId)>> subscribers;
 
     SystemStylingState(
         const std::string &font_name,

@@ -260,6 +260,15 @@ void TokenLineScroller::reset_buffer()
         DocAddr cur_address = line->address;
         clear_buffer();
         initialize_buffer_at(cur_address);
+
+        const DisplayLine *new_top = get_line_relative(0);
+        if (!new_top || new_top->address != cur_address)
+        {
+            std::cerr << "reset_buffer(): re-wrap did not land on an exact "
+                << "line boundary (requested address=" << cur_address
+                << ", landed on address=" << (new_top ? new_top->address : 0)
+                << ") - visible top line will shift" << std::endl;
+        }
     }
 }
 

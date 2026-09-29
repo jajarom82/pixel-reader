@@ -75,25 +75,28 @@ void rotate_blit(SDL_Surface *src, SDL_Surface *dst, int degrees)
         // desktop. Falls back to the manual version if this ever returns
         // something unexpected.
         SDL_Surface *rotated = rotozoomSurface(src, 180.0, 1.0, 0);
-        if (rotated && rotated->w == dst->w && rotated->h == dst->h)
+        if (rotated)
         {
+            if (rotated->w != dst->w || rotated->h != dst->h)
+            {
+                // rotozoomSurface's bounding-box math for a 180 degree turn
+                // can be off by a pixel or two on some libm/platform
+                // combinations (trig rounding), even though the rotation
+                // itself is correct. Blit the overlapping region instead of
+                // discarding the whole result over a near-miss - losing a
+                // 1px border beats silently falling back to the unrotated-
+                // looking manual path below.
+                std::cerr << "rotozoomSurface(180) returned unexpected size "
+                    << rotated->w << "x" << rotated->h << " (expected "
+                    << dst->w << "x" << dst->h << "), blitting clipped"
+                    << std::endl;
+            }
             SDL_BlitSurface(rotated, NULL, dst, NULL);
             SDL_FreeSurface(rotated);
             return;
         }
 
-        if (rotated)
-        {
-            std::cerr << "rotozoomSurface(180) returned unexpected size "
-                << rotated->w << "x" << rotated->h << " (expected "
-                << dst->w << "x" << dst->h << "), falling back to manual rotation"
-                << std::endl;
-            SDL_FreeSurface(rotated);
-        }
-        else
-        {
-            std::cerr << "rotozoomSurface(180) failed, falling back to manual rotation" << std::endl;
-        }
+        std::cerr << "rotozoomSurface(180) failed, falling back to manual rotation" << std::endl;
         // fall through to the manual rotation below
     }
 
