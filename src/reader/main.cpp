@@ -345,37 +345,21 @@ int main(int argc, char **argv)
     SDL_Surface *screen = SDL_CreateRGBSurface(SDL_HWSURFACE, SCREEN_WIDTH, SCREEN_HEIGHT, 32, 0, 0, 0, 0);
     set_render_surface_format(screen->format);
 
-    // Scratch buffer content is rotated into before reaching the physical
-    // panel. Only allocated while a non-zero rotation is active. Its size
-    // is always physical_width x physical_height regardless of *which*
-    // non-zero rotation is active (90/180/270 all rotate onto the same
-    // physical panel shape) - avoid pointlessly freeing/reallocating it
-    // when just switching between those.
-    SDL_Surface *rotated_buffer = nullptr;
-    auto sync_rotated_buffer = [&]() {
-        bool need_buffer = get_compensated_rotation_degrees(rotation) != 0;
-
-        if (need_buffer && rotated_buffer)
-        {
-            return; // already correctly sized, nothing to do
-        }
-
-        if (rotated_buffer)
-        {
-            SDL_FreeSurface(rotated_buffer);
-            rotated_buffer = nullptr;
-        }
-
-        if (need_buffer)
-        {
-            rotated_buffer = SDL_CreateRGBSurface(SDL_SWSURFACE, physical_width, physical_height, 32, 0, 0, 0, 0);
-            if (!rotated_buffer)
-            {
-                std::cerr << "Failed to allocate rotation buffer" << std::endl;
-            }
-        }
-    };
-    sync_rotated_buffer();
+    // Scratch buffer content is copied or rotated into before reaching the
+    // physical panel - always allocated and always used, even for a plain
+    // (0 degree) pass-through. On-device pixel readback proved that this
+    // device's blit-to-video path applies a hidden, unwanted 180 degree
+    // flip specifically when the source is `screen` (a hardware surface),
+    // but never when the source is this software-surface scratch buffer -
+    // so `screen` must never be blitted directly to `video`, regardless of
+    // whether a rotation is actually needed. Its size is always
+    // physical_width x physical_height regardless of *which* rotation is
+    // active (0/90/180/270 all land on the same physical panel shape).
+    SDL_Surface *rotated_buffer = SDL_CreateRGBSurface(SDL_SWSURFACE, physical_width, physical_height, 32, 0, 0, 0, 0);
+    if (!rotated_buffer)
+    {
+        std::cerr << "Failed to allocate rotation buffer" << std::endl;
+    }
 
     // Custom theme colors must be populated before SystemStyling is
     // constructed, in case the persisted color theme choice is "custom".
@@ -428,12 +412,9 @@ int main(int argc, char **argv)
             screen = SDL_CreateRGBSurface(SDL_HWSURFACE, SCREEN_WIDTH, SCREEN_HEIGHT, 32, 0, 0, 0, 0);
             set_render_surface_format(screen->format);
 
-            sync_rotated_buffer();
-
             std::cerr << "Rotation changed to " << rotation
                 << " (" << get_rotation_degrees(rotation) << " degrees), logical "
                 << SCREEN_WIDTH << "x" << SCREEN_HEIGHT
-                << ", rotated_buffer=" << (rotated_buffer ? "allocated" : "null")
                 << std::endl;
         }
     });
@@ -547,7 +528,19 @@ int main(int argc, char **argv)
         {
             Timer rotate_blit_timer;
             int degrees_to_apply = get_compensated_rotation_degrees(rotation);
-            rotate_blit(screen, rotated_buffer, degrees_to_apply);
+            if (degrees_to_apply == 0)
+            {
+                // rotate_blit(_, _, 0) is a deliberate no-op (relies on the
+                // caller using `screen` directly in that case) - but this
+                // path must never blit `screen` (a hardware surface)
+                // straight to `video`, so do the equivalent plain copy into
+                // the scratch buffer ourselves instead.
+                SDL_BlitSurface(screen, NULL, rotated_buffer, NULL);
+            }
+            else
+            {
+                rotate_blit(screen, rotated_buffer, degrees_to_apply);
+            }
             if (should_log_this_frame)
             {
                 std::cerr << "rotate_blit(degrees=" << degrees_to_apply
@@ -586,10 +579,6 @@ int main(int argc, char **argv)
             }
 
             SDL_BlitSurface(rotated_buffer, NULL, video, NULL);
-        }
-        else
-        {
-            SDL_BlitSurface(screen, NULL, video, NULL);
         }
         SDL_Flip(video);
 
