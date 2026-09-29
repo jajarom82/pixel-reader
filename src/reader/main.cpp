@@ -16,6 +16,7 @@
 #include "./views/token_view/token_view_styling.h"
 #include "filetypes/open_doc.h"
 #include "sys/battery.h"
+#include "sys/filesystem.h"
 #include "sys/keymap.h"
 #include "sys/screen.h"
 #include "util/fps_limiter.h"
@@ -35,6 +36,7 @@
 #include <csignal>
 #include <fstream>
 #include <iostream>
+#include <typeinfo>
 
 namespace
 {
@@ -306,6 +308,17 @@ int main(int argc, char **argv)
             std::cerr << "Battery probe: unavailable (check /tmp/battery on-device)" << std::endl;
         }
         probe_battery_candidates();
+
+        std::cerr << "Listing /sys/class/power_supply:" << std::endl;
+        auto power_supply_entries = directory_listing("/sys/class/power_supply");
+        if (power_supply_entries.empty())
+        {
+            std::cerr << "  (empty or does not exist)" << std::endl;
+        }
+        for (const auto &entry : power_supply_entries)
+        {
+            std::cerr << "  " << (entry.is_dir ? "D " : "F ") << entry.name << std::endl;
+        }
     }
 
     // Surfaces
@@ -470,20 +483,24 @@ int main(int argc, char **argv)
 
     // Present the logical `screen` surface to the physical `video` surface,
     // rotating through `rotated_buffer` first when a rotation is active.
+    Timer present_log_timer;
+    std::string last_logged_present_rotation = "<unset>";
     auto present = [&]() {
-        // Diagnostic: logged once per rotation value (not every frame) so
-        // there is an unambiguous record of which branch actually ran,
-        // instead of inferring it indirectly from SDL's own debug output.
-        static std::string last_logged_present_rotation = "<unset>";
-        if (last_logged_present_rotation != rotation)
+        // Diagnostic: logged whenever the rotation value changes, and
+        // periodically the rest of the time (every 2s) rather than only
+        // once - a change alone can't confirm what's still happening
+        // moments later, e.g. after closing a modal back to the reader.
+        if (last_logged_present_rotation != rotation || present_log_timer.elapsed_ms() >= 2000)
         {
             last_logged_present_rotation = rotation;
+            present_log_timer.reset();
             std::cerr << "present(): rotation=" << rotation
                 << " using " << (rotated_buffer ? "rotated_buffer" : "screen directly")
                 << (rotated_buffer ? (
                     " (" + std::to_string(rotated_buffer->w) + "x" + std::to_string(rotated_buffer->h) +
                     ", ptr=" + std::to_string(reinterpret_cast<uintptr_t>(rotated_buffer)) + ")"
                 ) : std::string())
+                << ", top_view=" << (view_stack.top_view() ? typeid(*view_stack.top_view()).name() : "none")
                 << std::endl;
         }
 
