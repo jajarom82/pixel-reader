@@ -184,6 +184,7 @@ public:
 void probe_battery_candidates()
 {
     static const char *candidates[] = {
+        "/tmp/.axp_result",
         "/tmp/battery",
         "/sys/class/power_supply/battery/capacity",
         "/sys/class/power_supply/axp2202-battery/capacity",
@@ -305,7 +306,7 @@ int main(int argc, char **argv)
         }
         else
         {
-            std::cerr << "Battery probe: unavailable (check /tmp/battery on-device)" << std::endl;
+            std::cerr << "Battery probe: unavailable (check /tmp/.axp_result and /tmp/battery on-device)" << std::endl;
         }
         probe_battery_candidates();
 
