@@ -509,7 +509,16 @@ int main(int argc, char **argv)
         if (rotated_buffer)
         {
             Timer rotate_blit_timer;
-            int degrees_to_apply = get_rotation_degrees(rotation);
+            // Confirmed on-device: with screen no longer ever blitted
+            // directly to video (previous fix), the remaining rotation
+            // pipeline is internally consistent but inverted end to end -
+            // the "0" setting displays upside down and "180" displays
+            // right side up. Whatever the exact cause (most likely the
+            // physical panel is mounted rotated 180 degrees relative to
+            // the framebuffer's natural orientation), the fix is the same
+            // additive 180 degree offset tried earlier, just now applied
+            // on top of a mechanism that is otherwise actually correct.
+            int degrees_to_apply = (get_rotation_degrees(rotation) + 180) % 360;
             if (degrees_to_apply == 0)
             {
                 // rotate_blit(_, _, 0) is a deliberate no-op (relies on the
