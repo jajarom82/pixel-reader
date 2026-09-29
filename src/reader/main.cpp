@@ -504,6 +504,25 @@ int main(int argc, char **argv)
                 << std::endl;
         }
 
+        // TEMPORARY VISUAL DIAGNOSTIC for the rotation investigation: a red
+        // square at the logical top-left corner, green at the logical
+        // bottom-right. If rotation is genuinely applied, these should
+        // visibly swap/move corners - removes any need to judge whether
+        // text "looks" upside down. Safe to remove once this is resolved.
+        {
+            constexpr int marker_size = 24;
+            SDL_Rect top_left_marker = {0, 0, marker_size, marker_size};
+            SDL_FillRect(screen, &top_left_marker, SDL_MapRGB(screen->format, 255, 0, 0));
+
+            SDL_Rect bottom_right_marker = {
+                static_cast<Sint16>(SCREEN_WIDTH - marker_size),
+                static_cast<Sint16>(SCREEN_HEIGHT - marker_size),
+                static_cast<Uint16>(marker_size),
+                static_cast<Uint16>(marker_size)
+            };
+            SDL_FillRect(screen, &bottom_right_marker, SDL_MapRGB(screen->format, 0, 255, 0));
+        }
+
         if (rotated_buffer)
         {
             rotate_blit(screen, rotated_buffer, get_rotation_degrees(rotation));
