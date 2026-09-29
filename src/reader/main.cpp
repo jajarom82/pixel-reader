@@ -491,7 +491,8 @@ int main(int argc, char **argv)
         // periodically the rest of the time (every 2s) rather than only
         // once - a change alone can't confirm what's still happening
         // moments later, e.g. after closing a modal back to the reader.
-        if (last_logged_present_rotation != rotation || present_log_timer.elapsed_ms() >= 2000)
+        bool should_log_this_frame = last_logged_present_rotation != rotation || present_log_timer.elapsed_ms() >= 2000;
+        if (should_log_this_frame)
         {
             last_logged_present_rotation = rotation;
             present_log_timer.reset();
@@ -526,7 +527,13 @@ int main(int argc, char **argv)
 
         if (rotated_buffer)
         {
+            Timer rotate_blit_timer;
             rotate_blit(screen, rotated_buffer, get_rotation_degrees(rotation));
+            if (should_log_this_frame)
+            {
+                std::cerr << "rotate_blit(degrees=" << get_rotation_degrees(rotation)
+                    << ") took " << rotate_blit_timer.elapsed_ms() << "ms" << std::endl;
+            }
 
             // TEMPORARY DIAGNOSTIC: read raw pixel values back out of
             // rotated_buffer at its four corners, in hex, right after the
@@ -534,7 +541,15 @@ int main(int argc, char **argv)
             // wrote new content into this buffer, independent of anything
             // that could go wrong afterward (the blit to `video`, the
             // display driver, or a human's read of a photo of the screen).
-            if (last_logged_present_rotation == rotation && present_log_timer.elapsed_ms() < 50)
+            //
+            // Gated on the same should_log_this_frame flag as the block
+            // above (not a fixed elapsed-time window) - rotozoomSurface's
+            // per-pixel floating point transform is measurably slower than
+            // the hand-rolled 90/270 paths on this ARM core, so a fixed
+            // "logged within the last 50ms" check could already be false
+            // by the time rotate_blit() returns for the 180 case, which is
+            // exactly why this never printed for degrees=180 last round.
+            if (should_log_this_frame)
             {
                 SDL_LockSurface(rotated_buffer);
                 auto pixel_at = [&](int x, int y) -> uint32_t {
