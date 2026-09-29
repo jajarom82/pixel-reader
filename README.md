@@ -16,9 +16,12 @@ noted otherwise:
 - **Screen rotation**: 0/90/180/270 degrees, takes effect immediately.
 - **Custom colors**: a 5th "Custom" theme with user-editable background and
   foreground colors (6 rows to step each RGB channel).
-- **Battery %**: shown top-right when running on Miyoo Mini/Mini+ hardware
-  (reads `/tmp/battery`, already kept up to date by OnionOS/MiniUI). Run
-  `sandbox battery` to check this works on your specific firmware.
+- **Battery %**: shown top-right as a battery-shaped icon (with a thin
+  charge gauge) when running on Miyoo Mini/Mini+ hardware under Onion OS.
+- **Reading margin**: a small fixed left/right margin so text no longer runs
+  flush to the screen edge.
+- **Dyslexia-friendly font**: OpenDyslexic is bundled alongside the default
+  fonts, selectable from the Font row like any other.
 - **Folder styling**: folders in the book list render with a trailing `/`
   and in a secondary color so they stand out from files.
 - **Per-book read %**: files you've started show how far you got, without
@@ -29,11 +32,10 @@ noted otherwise:
 - **Auto-scroll**: press Y while reading to start a smooth, pixel-by-pixel
   auto-scroll; hold L2/R2 to adjust its speed; any D-pad press or Y again
   stops it.
-
-None of this has been run on real Miyoo Mini/Mini+ hardware yet - see the
-"Open items to confirm on real hardware" notes in the commit history for the
-couple of things (exact battery file path, rotation direction) that are
-easiest to get backwards without a device to test on.
+- **Bookmarks**: press START while reading to mark or unmark the current
+  page (shown with a ★ before the chapter title in the title bar). Press
+  SELECT to jump to a bookmark or table of contents entry from one combined
+  list.
 
 ## Miyoo Mini Installation
 

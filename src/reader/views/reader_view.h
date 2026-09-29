@@ -10,6 +10,7 @@
 
 struct DocReader;
 struct ReaderViewState;
+struct StateStore;
 struct SystemStyling;
 struct TokenViewStyling;
 struct ViewStack;
@@ -27,7 +28,8 @@ public:
         DocAddr seek_address,
         SystemStyling &sys_styling,
         TokenViewStyling &token_view_styling,
-        ViewStack &view_stack
+        ViewStack &view_stack,
+        StateStore &state_store
     );
     ReaderView(const ReaderView &) = delete;
     ReaderView &operator=(const ReaderView &) = delete;

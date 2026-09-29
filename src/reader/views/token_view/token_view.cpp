@@ -590,6 +590,22 @@ DocAddr TokenView::get_address() const
     return 0;
 }
 
+DocAddr TokenView::get_last_visible_address() const
+{
+    // Walk backward from the last line the current page could show, in
+    // case fewer lines than that are actually available (near the end of
+    // the book).
+    for (int i = state->num_text_display_lines() - 1; i > 0; --i)
+    {
+        const DisplayLine *line = state->line_scroller.get_line_relative(i);
+        if (line)
+        {
+            return line->address;
+        }
+    }
+    return get_address();
+}
+
 void TokenView::seek_to_address(DocAddr address)
 {
     state->line_scroller.seek_to_address(address);

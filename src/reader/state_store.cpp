@@ -2,6 +2,7 @@
 #include "util/key_value_file.h"
 #include "util/string_serialization.h"
 
+#include <algorithm>
 #include <fstream>
 #include <unordered_map>
 
@@ -118,6 +119,66 @@ std::optional<uint32_t> load_book_progress(const std::filesystem::path &path)
         return std::nullopt;
     }
     return try_decode_uint(it->second);
+}
+
+/////////////////////////////////////
+// Bookmarks Store
+
+constexpr const char *BOOKMARK_COUNT_KEY = "count";
+
+std::filesystem::path bookmarks_store_path_for_book(const std::filesystem::path &base_path, const std::string &book_id)
+{
+    return base_path / (book_id + ".bookmarks");
+}
+
+void write_book_bookmarks(const std::filesystem::path &path, const std::vector<Bookmark> &bookmarks)
+{
+    string_unordered_map kv = {
+        {BOOKMARK_COUNT_KEY, std::to_string(bookmarks.size())}
+    };
+
+    for (size_t i = 0; i < bookmarks.size(); ++i)
+    {
+        kv[std::to_string(i) + "_address"] = encode_address(bookmarks[i].address);
+        kv[std::to_string(i) + "_label"] = bookmarks[i].label;
+    }
+
+    write_key_value(path, kv);
+}
+
+std::vector<Bookmark> load_book_bookmarks(const std::filesystem::path &path)
+{
+    std::vector<Bookmark> bookmarks;
+
+    auto kv = load_key_value(path);
+    auto count_it = kv.find(BOOKMARK_COUNT_KEY);
+    if (count_it == kv.end())
+    {
+        return bookmarks;
+    }
+
+    auto count = try_decode_uint(count_it->second);
+    if (!count)
+    {
+        return bookmarks;
+    }
+
+    for (uint32_t i = 0; i < *count; ++i)
+    {
+        auto address_it = kv.find(std::to_string(i) + "_address");
+        if (address_it == kv.end())
+        {
+            continue;
+        }
+
+        auto label_it = kv.find(std::to_string(i) + "_label");
+        bookmarks.push_back(Bookmark{
+            decode_address(address_it->second),
+            label_it != kv.end() ? label_it->second : std::string()
+        });
+    }
+
+    return bookmarks;
 }
 
 } // namespace
@@ -292,6 +353,42 @@ void StateStore::set_book_progress(const std::string &book_id, uint32_t percent)
     }
 }
 
+const std::vector<Bookmark> &StateStore::get_bookmarks(const std::string &book_id) const
+{
+    auto it = book_bookmarks.find(book_id);
+    if (it != book_bookmarks.end())
+    {
+        return it->second;
+    }
+
+    book_bookmarks[book_id] = load_book_bookmarks(
+        bookmarks_store_path_for_book(book_data_root_path, book_id)
+    );
+    return book_bookmarks[book_id];
+}
+
+void StateStore::add_bookmark(const std::string &book_id, DocAddr address, const std::string &label)
+{
+    get_bookmarks(book_id); // ensure the cache is populated from disk first
+    book_bookmarks[book_id].push_back(Bookmark{address, label});
+    bookmarks_dirty.emplace(book_id);
+}
+
+void StateStore::remove_bookmark(const std::string &book_id, DocAddr address)
+{
+    get_bookmarks(book_id); // ensure the cache is populated from disk first
+    auto &bookmarks = book_bookmarks[book_id];
+
+    auto it = std::find_if(bookmarks.begin(), bookmarks.end(), [address](const Bookmark &b) {
+        return b.address == address;
+    });
+    if (it != bookmarks.end())
+    {
+        bookmarks.erase(it);
+        bookmarks_dirty.emplace(book_id);
+    }
+}
+
 std::optional<std::string> StateStore::get_setting(const std::string &name) const
 {
     auto it = settings.find(name);
@@ -367,5 +464,17 @@ void StateStore::flush() const
             );
         }
         book_progress_dirty.clear();
+    }
+
+    // bookmarks
+    {
+        for (const auto &book_id : bookmarks_dirty)
+        {
+            write_book_bookmarks(
+                bookmarks_store_path_for_book(book_data_root_path, book_id),
+                book_bookmarks[book_id]
+            );
+        }
+        bookmarks_dirty.clear();
     }
 }

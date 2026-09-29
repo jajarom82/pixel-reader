@@ -41,6 +41,7 @@ public:
     bool wants_continuous_render() const override;
 
     DocAddr get_address() const;
+    DocAddr get_last_visible_address() const;
     void seek_to_address(DocAddr address);
 
     void set_title(const std::string &title);

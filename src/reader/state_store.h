@@ -6,9 +6,21 @@
 #include <filesystem>
 #include <optional>
 #include <set>
+#include <string>
 #include <unordered_map>
+#include <vector>
 
 using string_unordered_map = std::unordered_map<std::string, std::string>;
+
+// A reader-placed marker at a precise position, distinct from the table of
+// contents (author-defined chapter structure): label is a short snippet of
+// the book's own text at that position, so the bookmark is recognizable in
+// a list without needing to jump to it first.
+struct Bookmark
+{
+    DocAddr address;
+    std::string label;
+};
 
 class StateStore {
     mutable bool activity_dirty = false;
@@ -44,6 +56,10 @@ class StateStore {
     mutable std::unordered_map<std::string, uint32_t> book_progress;
     mutable std::set<std::string> book_progress_dirty;
 
+    // bookmarks, keyed by book id
+    mutable std::unordered_map<std::string, std::vector<Bookmark>> book_bookmarks;
+    mutable std::set<std::string> bookmarks_dirty;
+
 public:
     StateStore(std::filesystem::path base_dir);
     virtual ~StateStore();
@@ -72,6 +88,11 @@ public:
     // book progress
     std::optional<uint32_t> get_book_progress(const std::string &book_id) const;
     void set_book_progress(const std::string &book_id, uint32_t percent);
+
+    // bookmarks
+    const std::vector<Bookmark> &get_bookmarks(const std::string &book_id) const;
+    void add_bookmark(const std::string &book_id, DocAddr address, const std::string &label);
+    void remove_bookmark(const std::string &book_id, DocAddr address);
 
     // generic settings
     std::optional<std::string> get_setting(const std::string &name) const;
