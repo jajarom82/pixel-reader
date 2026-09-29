@@ -119,7 +119,7 @@ struct TokenViewState
               [this](const char *s, uint32_t len) {
                   return line_fits_on_screen(
                       current_font,
-                      SCREEN_WIDTH - line_padding * 2,
+                      SCREEN_WIDTH - TEXT_SIDE_MARGIN * 2,
                       s,
                       len
                   );
@@ -204,7 +204,7 @@ bool TokenView::render(SDL_Surface *dest_surface, bool force_render)
                 if (surface)
                 {
                     SDL_Rect dest_rect = {
-                        static_cast<Sint16>(line_padding + (text_line->centered ? (SCREEN_WIDTH - 2 * line_padding - surface->w) /2 : 0)),
+                        static_cast<Sint16>(TEXT_SIDE_MARGIN + (text_line->centered ? (SCREEN_WIDTH - 2 * TEXT_SIDE_MARGIN - surface->w) /2 : 0)),
                         static_cast<Sint16>(line_y + line_padding / 2),
                         0, 0
                     };
@@ -309,11 +309,11 @@ bool TokenView::render(SDL_Surface *dest_surface, bool force_render)
             SDL_Surface *page_surface = TTF_RenderUTF8_Shaded(font, percent_str, theme.secondary_text, theme.background);
 
             SDL_Rect dest_rect = {
-                static_cast<Sint16>(SCREEN_WIDTH - page_surface->w - line_padding),
+                static_cast<Sint16>(SCREEN_WIDTH - page_surface->w - TEXT_SIDE_MARGIN),
                 static_cast<Sint16>(line_y + line_padding / 2),
                 0, 0
             };
-            title_crop_rect.w = SCREEN_WIDTH - line_padding * 2 - page_surface->w;
+            title_crop_rect.w = SCREEN_WIDTH - TEXT_SIDE_MARGIN * 2 - page_surface->w;
 
             SDL_BlitSurface(page_surface, nullptr, dest_surface, &dest_rect);
             SDL_FreeSurface(page_surface);
@@ -323,7 +323,7 @@ bool TokenView::render(SDL_Surface *dest_surface, bool force_render)
         if (state->title.size() > 0)
         {
             SDL_Rect dest_rect = {
-                static_cast<Sint16>(line_padding),
+                static_cast<Sint16>(TEXT_SIDE_MARGIN),
                 static_cast<Sint16>(line_y + line_padding / 2),
                 0, 0
             };

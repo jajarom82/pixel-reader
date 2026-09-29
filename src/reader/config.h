@@ -24,6 +24,12 @@
 #define DEFAULT_FONT_SIZE  26
 #define FONT_SIZE_STEP     2
 
+// Reserved blank space on the left/right edges of the reading area, kept
+// separate from the vertical line padding below - readers who find text
+// running flush to the screen edge uncomfortable need this every time,
+// so it is a fixed reserve rather than another settings row.
+#define TEXT_SIDE_MARGIN 10
+
 #define DIALOG_PADDING       25
 #define DIALOG_BORDER_WIDTH  3
 
