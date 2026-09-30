@@ -28,7 +28,7 @@
 // separate from the vertical line padding below - readers who find text
 // running flush to the screen edge uncomfortable need this every time,
 // so it is a fixed reserve rather than another settings row.
-#define TEXT_SIDE_MARGIN 10
+#define TEXT_SIDE_MARGIN 2
 
 #define DIALOG_PADDING       25
 #define DIALOG_BORDER_WIDTH  3
