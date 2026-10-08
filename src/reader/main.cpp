@@ -176,10 +176,13 @@ public:
 // every SDL1.2 build (notably absent from the Miyoo Mini cross-compile
 // toolchain's headers). Polls in a short sleep loop instead of a single
 // blocking call - still lets the CPU idle between polls, just with
-// POLL_STEP_MS granularity instead of an instant wake.
+// POLL_STEP_MS granularity instead of an instant wake. 50ms caps added
+// input latency well under what's perceptible for turning a page or
+// waking from idle, while waking the CPU 5x less often than a more
+// cautious 10ms step would while nothing is happening.
 bool poll_event_with_timeout(SDL_Event *event, uint32_t timeout_ms)
 {
-    constexpr uint32_t POLL_STEP_MS = 10;
+    constexpr uint32_t POLL_STEP_MS = 50;
     uint32_t start = SDL_GetTicks();
     while (true)
     {
